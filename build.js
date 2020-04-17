@@ -56,12 +56,12 @@ fs.mkdir('./dist', async () => {
 
 	// Create a map of each page and its contents
 	walk('./pages', (filepath, isDir) => {
-		if (isDir) {
+		if (isDir || !filepath.endsWith('/index.html')) {
 			return
 		}
 		
 		const buf = fs.readFileSync(filepath)
-		const r = filepath.replace(/.+?\//, '/').replace(/\/index.html$/, '/')
+		const r = ('/'+removeFirstDir(filepath)).replace(/\/index.html$/, '/')
 		routes[r] = buf.toString()
 	})
 
@@ -74,10 +74,8 @@ fs.mkdir('./dist', async () => {
 		if (!isDir) {
 			return
 		}
-		// remove leading pages/
-		filepath = filepath.replace(/.+?\//, '/')
-		
-		fs.mkdirSync(`./dist/${filepath}`, { recursive: true })
+
+		fs.mkdirSync(`./dist/${removeFirstDir(filepath)}`, { recursive: true })
 	})
 	
 	// Read head.html
@@ -91,13 +89,19 @@ fs.mkdir('./dist', async () => {
 		}
 
 		const buf = fs.readFileSync(filepath)
-		
-		// remove leading pages/
-		filepath = filepath.replace(/.+?\//, '/')
-		
+
 		let template = htmlTemplate.replace('<%navigation%>', navigation)
-		template = template.replace('<%body%>', buf.toString())
 		
-		fs.writeFileSync(`./dist/${filepath}`, template)
+		if (filepath.endsWith('/index.html')) {
+			template = template.replace('<%body%>', buf.toString())
+			fs.writeFileSync(`./dist/${removeFirstDir(filepath)}`, template)
+		} else {
+			// just copy file
+			fs.writeFileSync(`./dist/${removeFirstDir(filepath)}`, buf)
+		}
 	})
 })
+
+function removeFirstDir(p) {
+	return p.replace(/.+?\//, '')
+}

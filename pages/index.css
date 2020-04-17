@@ -1,0 +1,19 @@
+body {
+  font-weight: bold;
+}
+
+.card {
+  width: 100%;
+}
+
+.card .card-footer {
+  width: 50%;
+}
+
+.card .card-footer .text-large {
+  width: 50%;
+}
+
+.card .card-body {
+  background-color: red;
+}
