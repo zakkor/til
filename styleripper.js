@@ -3,149 +3,140 @@ const csstree = require('css-tree')
 const htmlparse = require('node-html-parser')
 const R = require('ramda')
 
-// a list of .js and .html files
+// A list of .html and .css files.
+// Ordering does not matter, but file extension does.
 const inputFiles = process.argv.slice(2)
 
-// number of times each class name appears
-const classNodes = {}
+// classnames contains information about the class name nodes appearing in all input files.
+// `count` is the number of times each class name appears, created first when parsing HTML
+// and updated when parsing CSS.
+// `total` is the number of bytes occupied by this classname in both HTML and CSS files, created only after parsing CSS.
+const classnames = {}
 
-for (const file of inputFiles) {
-  if (!file.endsWith('.html')) {
-    continue
-  }
+// Iterate through all HTML files and parse their contents,
+// collecting information about different node types.
+inputFiles
+	.filter(f => f.endsWith('.html'))
+	.forEach(f => {
+		const data = fs.readFileSync(f, 'utf8')
+		parseHTML(classnames, data)
+	})
 
-  const contents = fs.readFileSync(file, 'utf8')
-  parseHTML(classNodes, contents)
-}
-
-for (const file of inputFiles) {
-  if (!file.endsWith('.css')) {
-    continue
-  }
-
-  const contents = fs.readFileSync(file, 'utf8')
-  parseCSS(classNodes, contents)
-}
-
-function parseCSS(classNodes, content) {
-  const ast = csstree.parse(content)
-
-  csstree.walk(ast, function (node) {
-    if (node.type === 'ClassSelector') {
-      if (node.name in classNodes) {
-        classNodes[node.name].count++
-      }
-      // else {
-      //   classNodes[node.name] = {
-      //     count: 1,
-      //   }
-      // }
-    }
-  })
-
-  const biggestNodes = []
-  for (const [name, node] of Object.entries(classNodes)) {
-    const val = node.count * name.length
-
-    biggestNodes.push({ name, total: val })
-  }
-
-
-  const nodeComparator = function (a, b) {
-    return b.total - a.total
-  }
-  biggestNodes.sort(nodeComparator)
-
-  console.log('sorted:', biggestNodes)
-
-  // remove unused classes
-  csstree.walk(ast, {
-    visit: 'Rule',
-    enter: function (node, item, list) {
-      let found = false
-      for (const [name] of Object.entries(classNodes)) {
-        const hasClass = csstree.find(node.prelude, node =>
-          node.type === 'ClassSelector' && node.name === name
-        );
-        if (hasClass) {
-          found = true
-          break
-        }
-      }
-      if (!found) {
-        console.log('removed', node.prelude)
-        list.remove(item)
-      }
-      
-
-      // if (!(node.prelude.value in classNodes) && list) {
-      // }
-    }
-  })
-    
-
-  let idx = 0
-  for (const bigNode of biggestNodes) {
-    csstree.walk(ast, function (node) {
-      if (node.type !== 'ClassSelector') {
-        return
-      }
-
-      if (node.name == bigNode.name) {
-        console.log('renamed from ', node.name)
-        node.name = generateShortestName(idx)
-        console.log('renamed to', node.name)
-      }
-    })
-    idx++
-  }
-
-  const generatedCSS = csstree.generate(ast)
-  console.log('length:', generatedCSS.length)
-  fs.writeFileSync('test/output.css', generatedCSS)
-}
+// Iterate through all CSS files and parse their contents,
+// collecting more information about different node types.
+// Concatenate results into a string of css file contents.
+const concat = inputFiles
+	.filter(f => f.endsWith('.css'))
+	.map(f => {
+		const data = fs.readFileSync(f, 'utf8')
+		return parseCSS(classnames, data)
+	})
+	.reduce((x, acc) => x + acc)
 
 function parseHTML(classNodes, contents) {
-  const el = htmlparse.parse(contents)
-  addNodeChildren(classNodes, el)
+	const el = htmlparse.parse(contents)
+	addNodeChildren(classNodes, el)
 }
 
-function addNodeChildren(classNodes, el) {
-  for (const child of el.childNodes) {
-    if (child.classNames != undefined) {
-      for (const className of child.classNames) {
-        if (className in classNodes) {
-          classNodes[className].count++
-        } else {
-          classNodes[className] = {
-            count: 1,
-          }
-        }
-      }
-    }
+function addNodeChildren(classnames, el) {
+	for (const child of el.childNodes) {
+		if (child.classNames == undefined) {
+			continue
+		}
 
-    if (child.childNodes.length > 0) {
-      addNodeChildren(classNodes, child)
-    }
-  }
+		for (const className of child.classNames) {
+			if (className in classnames) {
+				classnames[className].count++
+				continue
+			}
+
+			classnames[className] = { count: 1 }
+		}
+
+		if (child.childNodes.length > 0) {
+			addNodeChildren(classnames, child)
+		}
+	}
+}
+
+function parseCSS(classnames, data) {
+	// Parse given CSS file into an AST.
+	const ast = csstree.parse(data)
+
+	// Walk AST and remove rules in which the only selector is an unused class.
+	csstree.walk(ast, {
+		visit: 'Rule',
+		enter: function (node, parentItem, parentList) {
+			node.prelude.children.each((selector, item, list) => {
+				// Remove any unused class selectors from SelectorList
+				selector.children.each((s) => {
+					if (s.type !== 'ClassSelector' || s.name in classnames) {
+						return
+					}
+
+					list.remove(item)
+				})
+
+				// We've removed all the selectors, need to remove entire rule.
+				if (list.isEmpty()) {
+					parentList.remove(parentItem)
+				}
+			})
+		}
+	})
+
+	// Walk through all class selectors and increment their count.
+	// (Only if they are used, as we have already removed all unused classnames)
+	csstree.walk(ast, {
+		visit: 'ClassSelector',
+		enter: function (node) {
+			if (!(node.name in classnames)) {
+				throw new Error('encountered unused class selector when it should have been removed')
+			}
+
+			classnames[node.name].count++
+		}
+	})
+
+	// Calculate the total byte size of each classname (count * name length) and collect it into an array so we can sort it.
+	let sorted = Object.entries(classnames)
+		.map(([name, sel]) => {
+			return { name, total: name.length * sel.count }
+		}).sort((a, b) => b.total - a.total)
+
+	// For each selector in sorted order, walk through AST and rename each occurrence.
+	for (const [i, sel] of sorted.entries()) {
+		csstree.walk(ast, {
+			visit: 'ClassSelector',
+			enter: function (node) {
+				if (node.name !== sel.name) {
+					return
+				}
+
+				node.name = generateShortestName(i)
+			}
+		})
+	}
+
+	return csstree.generate(ast)
 }
 
 function generateShortestName(idx) {
-  // fill with a-z
-  const letters =
-    R.range(97, 123)
-      .map(c => String.fromCharCode(c))
+	// fill with a-z
+	const letters =
+		R.range(97, 123)
+			.map(c => String.fromCharCode(c))
 
-  let timesOver = 0
-  while (idx >= letters.length) {
-    timesOver++
+	let timesOver = 0
+	while (idx >= letters.length) {
+		timesOver++
 
-    idx -= letters.length
-  }
+		idx -= letters.length
+	}
 
-  if (timesOver) {
-    return letters[idx] + (timesOver - 1)
-  }
+	if (timesOver) {
+		return letters[idx] + (timesOver - 1)
+	}
 
-  return letters[idx]
+	return letters[idx]
 }

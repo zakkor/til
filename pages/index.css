@@ -1,19 +1,29 @@
-body {
+html, body.large {
   font-weight: bold;
 }
 
-.card {
-  width: 100%;
+
+/* 
+h1 {
+	font-size: 36px;
 }
 
-.card .card-footer {
-  width: 50%;
+.cards {
+	max-width: 26px;
 }
 
-.card .card-footer .text-large {
-  width: 50%;
+.cards .card {
+	height: 100%;
 }
 
-.card .card-body {
-  background-color: red;
+.text-2xl {
+	font-size: 24px;
 }
+
+h1.text-2xl {
+	font-size: 24px;
+}
+
+.text-2xl, .text-6xl {
+
+} */

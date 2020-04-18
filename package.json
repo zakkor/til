@@ -9,8 +9,8 @@
   "devDependencies": {
     "css-tree": "^1.0.0-alpha.39",
     "node-html-parser": "^1.2.16",
-    "tailwindcss": "^1.2.0",
-    "ramda": "^0.27.0"
+    "ramda": "^0.27.0",
+    "tailwindcss": "^1.2.0"
   },
   "dependencies": {}
 }
