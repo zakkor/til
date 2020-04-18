@@ -84,6 +84,10 @@ function parseAndProcessCSS(classnames, rename, data) {
 	// Parse given CSS file into an AST.
 	const ast = csstree.parse(data)
 
+	function cleanName(n) {
+		return n.replace(/\\/g, '')
+	}
+
 	// Walk AST and remove rules in which the only selector is an unused class.
 	csstree.walk(ast, {
 		visit: 'Rule',
@@ -91,7 +95,7 @@ function parseAndProcessCSS(classnames, rename, data) {
 			node.prelude.children.each((selector, item, list) => {
 				// Remove any unused class selectors from SelectorList
 				selector.children.each((s) => {
-					if (s.type !== 'ClassSelector' || s.name in classnames) {
+					if (s.type !== 'ClassSelector' || cleanName(s.name) in classnames) {
 						return
 					}
 
@@ -111,11 +115,12 @@ function parseAndProcessCSS(classnames, rename, data) {
 	csstree.walk(ast, {
 		visit: 'ClassSelector',
 		enter: function (node) {
-			if (!(node.name in classnames)) {
+			const name = cleanName(node.name)
+			if (!(name in classnames)) {
 				throw new Error('encountered unused class selector when it should have been removed')
 			}
 
-			classnames[node.name].count++
+			classnames[name].count++
 		}
 	})
 
@@ -130,13 +135,14 @@ function parseAndProcessCSS(classnames, rename, data) {
 		csstree.walk(ast, {
 			visit: 'ClassSelector',
 			enter: function (node) {
-				if (node.name !== sel.name) {
+				const name = cleanName(node.name)
+				if (name !== sel.name) {
 					return
 				}
 
-				const name = generateShortestName(i)
-				rename[node.name] = name
-				node.name = name
+				const newname = generateShortestName(i)
+				rename[name] = newname
+				node.name = newname
 			}
 		})
 	}
