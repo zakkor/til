@@ -2,7 +2,6 @@ const fs = require('fs')
 const path = require('path')
 const csstree = require('css-tree')
 const htmlparse = require('node-html-parser')
-const R = require('ramda')
 
 // A list of .html and .css files.
 // Ordering does not matter, but file extension does.
@@ -171,21 +170,27 @@ function processHTMLNodeChildren(rename, node) {
 }
 
 function generateShortestName(idx) {
+	function range(s, e) {
+		let a = []
+		for (let i = s; i < e; i++) {
+			a.push(i)
+		}
+		return a
+	}
+
 	// fill with a-z
-	const letters =
-		R.range(97, 123)
-			.map(c => String.fromCharCode(c))
+	const ascii =	range(97, 123).map(c => String.fromCharCode(c))
 
 	let timesOver = 0
-	while (idx >= letters.length) {
+	while (idx >= ascii.length) {
 		timesOver++
 
-		idx -= letters.length
+		idx -= ascii.length
 	}
 
 	if (timesOver) {
-		return letters[idx] + (timesOver - 1)
+		return ascii[idx] + (timesOver - 1)
 	}
 
-	return letters[idx]
+	return ascii[idx]
 }
