@@ -1,4 +1,5 @@
 const fs = require('fs')
+const path = require('path')
 const csstree = require('css-tree')
 const htmlparse = require('node-html-parser')
 const R = require('ramda')
@@ -6,60 +7,80 @@ const R = require('ramda')
 // A list of .html and .css files.
 // Ordering does not matter, but file extension does.
 const inputFiles = process.argv.slice(2)
+function readFiles(files, extension) {
+	return files.filter(f => f.endsWith(extension)).map(f => { return { name: f, data: fs.readFileSync(f, 'utf8') } })
+}
+const htmlFiles = readFiles(inputFiles, '.html')
+const cssFiles = readFiles(inputFiles, '.css')
 
 // classnames contains information about the class name nodes appearing in all input files.
 // `count` is the number of times each class name appears, created first when parsing HTML
 // and updated when parsing CSS.
 // `total` is the number of bytes occupied by this classname in both HTML and CSS files, created only after parsing CSS.
 const classnames = {}
+// renames contains information describing which nodes to rename to what
+const rename = {
+	classnames: {} // { 'from': 'to' }
+}
 
 // Iterate through all HTML files and parse their contents,
 // collecting information about different node types.
-inputFiles
-	.filter(f => f.endsWith('.html'))
-	.forEach(f => {
-		const data = fs.readFileSync(f, 'utf8')
-		parseHTML(classnames, data)
-	})
+htmlFiles.forEach(f => {
+	parseHTML(classnames, f.data)
+})
 
 // Iterate through all CSS files and parse their contents,
 // collecting more information about different node types.
-// Concatenate results into a string of css file contents.
-const concat = inputFiles
-	.filter(f => f.endsWith('.css'))
-	.map(f => {
-		const data = fs.readFileSync(f, 'utf8')
-		return parseCSS(classnames, data)
-	})
-	.reduce((x, acc) => x + acc)
+// Before walking the AST, all unused classnames are removed.
+// Afterwards, nodes are renamed and recorded in `rename`, and the resulting CSS is returned.
+// Concatenate results into a string of all CSS file contents.
+const css = cssFiles.map(f => {
+	return parseAndProcessCSS(classnames, rename, f.data)
+}).reduce((x, acc) => x + acc, '')
 
-function parseHTML(classNodes, contents) {
-	const el = htmlparse.parse(contents)
-	addNodeChildren(classNodes, el)
+// Write concatted CSS to file.
+const p = `./dist/built.css`
+fs.mkdirSync(path.dirname(p), { recursive: true })
+fs.writeFileSync(p, css)
+
+// Go through HTML files again, and rewrite all nodes according to `rename`.
+// Gather each file's rewritten content in an array.
+const html = htmlFiles.map(f => {
+	const node = htmlparse.parse(f.data)
+	processHTMLNodeChildren(rename, node)
+	return node.toString()
+})
+
+// Write each rewritten HTML to its own file.
+html.forEach((h, i) => {
+	const p = `./dist/${htmlFiles[i].name}`
+	fs.mkdirSync(path.dirname(p), { recursive: true })
+	fs.writeFileSync(p, h)
+})
+
+function parseHTML(classnames, data) {
+	const node = htmlparse.parse(data)
+	parseHTMLNodeChildren(classnames, node)
 }
 
-function addNodeChildren(classnames, el) {
-	for (const child of el.childNodes) {
-		if (child.classNames == undefined) {
-			continue
-		}
-
-		for (const className of child.classNames) {
+function parseHTMLNodeChildren(classnames, node) {
+	// Count each className occurrence.
+	if (node.classNames) {
+		for (const className of node.classNames) {
 			if (className in classnames) {
 				classnames[className].count++
 				continue
 			}
-
 			classnames[className] = { count: 1 }
 		}
+	}
 
-		if (child.childNodes.length > 0) {
-			addNodeChildren(classnames, child)
-		}
+	for (const child of node.childNodes) {
+		parseHTMLNodeChildren(classnames, child)
 	}
 }
 
-function parseCSS(classnames, data) {
+function parseAndProcessCSS(classnames, rename, data) {
 	// Parse given CSS file into an AST.
 	const ast = csstree.parse(data)
 
@@ -113,12 +134,34 @@ function parseCSS(classnames, data) {
 					return
 				}
 
-				node.name = generateShortestName(i)
+				const name = generateShortestName(i)
+				rename[node.name] = name
+				node.name = name
 			}
 		})
 	}
 
 	return csstree.generate(ast)
+}
+
+function processHTMLNodeChildren(rename, node) {
+	if (node.classNames) {
+		const replace = node.classNames.map(c => {
+			if (c in rename) {
+				return rename[c]
+			}
+
+			return c
+		})
+
+		if (replace.length > 0) {
+			node.setAttribute('class', replace.join(' '))
+		}
+	}
+
+	for (const child of node.childNodes) {
+		processHTMLNodeChildren(rename, child)
+	}
 }
 
 function generateShortestName(idx) {
