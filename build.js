@@ -2,6 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const htmlMinifier = require('html-minifier').minify
 const uglifyJS = require('uglify-js')
+const zlib = require('zlib')
 const rip = require('./styleripper')
 
 fs.mkdir('./dist', async () => {
@@ -42,11 +43,11 @@ fs.mkdir('./dist', async () => {
 		const min = minifyHTML(template)
 		
 		// Write to file.
-		fs.writeFileSync(`./dist/${removeFirstDir(page.path)}`, min)
+		writeFileCompressed(`./dist/${removeFirstDir(page.path)}`, min)
 	}
 
 	// Write CSS.
-	fs.writeFileSync(`./dist/${ripped.css.path}`, ripped.css.data)
+	writeFileCompressed(`./dist/${ripped.css.path}`, ripped.css.data)
 })
 
 let htmlTemplate = `<!DOCTYPE html>
@@ -127,6 +128,11 @@ function minifyHTML(data) {
 		removeAttributeQuotes: true,
 		removeComments: true,
 	})
+}
+
+function writeFileCompressed(path, data) {
+	const compr = zlib.brotliCompressSync(data)
+	fs.writeFileSync(`${path}.br`, compr)
 }
 
 function removeFirstDir(p) {
