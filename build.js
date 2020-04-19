@@ -5,52 +5,7 @@ const uglifyJS = require('uglify-js')
 const zlib = require('zlib')
 const rip = require('./styleripper')
 
-fs.mkdir('./dist', async () => {
-	// Read head.html
-	const headbuf = fs.readFileSync('head.html')
-	htmlTemplate = htmlTemplate.replace('<%head%>', headbuf.toString())
-
-	const toProcess = collect('./pages', ['.html', '.css']).concat(collect('./styles', ['.css']))
-	const ripped = rip(toProcess)
-
-	let routes = {}
-	for (const page of ripped.html) {
-		routes[pathToRoute(page.path)] = minifyHTML(page.data)
-	}
-
-	// First, create all output directories
-	walk('./pages', (filepath, isDir) => {
-		if (isDir) {
-			fs.mkdirSync(`./dist/${removeFirstDir(filepath)}`, { recursive: true })
-		}
-	})
-
-	for (const page of ripped.html) {
-		// Append routes except self to navigation template, and close the script tag.
-		let selfRoutes = Object.assign({}, routes)
-		delete(selfRoutes[pathToRoute(page.path)])
-		selfRoutes = JSON.stringify(selfRoutes)
-
-		let navigation = navigationTemplate.replace('<%routes%>', `var r = ${selfRoutes}`)
-		
-		// Uglify JS.
-		navigation = uglifyJS.minify(navigation).code
-
-		let template = htmlTemplate.replace('<%navigation%>', `<script>${navigation}</script>`)
-		template = template.replace('<%body%>', page.data)
-
-		// Minify HTML.
-		const min = minifyHTML(template)
-		
-		// Write to file.
-		writeFileCompressed(`./dist/${removeFirstDir(page.path)}`, min)
-	}
-
-	// Write CSS.
-	writeFileCompressed(`./dist/${ripped.css.path}`, ripped.css.data)
-})
-
-let htmlTemplate = `<!DOCTYPE html>
+let HtmlTemplate = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <%head%>
@@ -61,7 +16,7 @@ let htmlTemplate = `<!DOCTYPE html>
 </body>
 </html>`
 
-const navigationTemplate = `var root = document.querySelector('#root')
+const NavigationTemplate = `var root = document.querySelector('#root')
 function d() {
   document.querySelectorAll('a[href]').forEach(function(e) { e.onclick = g })
 }
@@ -79,8 +34,70 @@ d()
 <%routes%>
 r[location.pathname] = root.innerHTML`
 
+function build() {
+	// Read head.html
+	const headbuf = fs.readFileSync('head.html')
+	HtmlTemplate = HtmlTemplate.replace('<%head%>', headbuf.toString())
+
+	const toProcess = collect('./pages', ['.html', '.css']).concat(collect('./styles', ['.css']))
+	const ripped = rip(toProcess)
+
+	let routes = {}
+	for (const page of ripped.html) {
+		routes[pathToRoute(page.path)] = minifyHTML(page.data)
+	}
+
+	// First, create all output directories
+	walk('./pages', [], (filepath, isDir) => {
+		if (isDir) {
+			fs.mkdirSync(`./dist/${removeFirstDir(filepath)}`, { recursive: true })
+		}
+	})
+
+	for (const page of ripped.html) {
+		// Append routes except self to navigation template, and close the script tag.
+		let selfRoutes = Object.assign({}, routes)
+		delete (selfRoutes[pathToRoute(page.path)])
+		selfRoutes = JSON.stringify(selfRoutes)
+
+		let navigation = NavigationTemplate.replace('<%routes%>', `var r = ${selfRoutes}`)
+		navigation = uglifyJS.minify(navigation).code
+
+		let template = HtmlTemplate.replace('<%navigation%>', `<script>${navigation}</script>`)
+		template = template.replace('<%body%>', page.data)
+
+		// Write HTML to file.
+		writeFileCompressed(`./dist/${removeFirstDir(page.path)}`, minifyHTML(template))
+	}
+
+	// Write CSS.
+	writeFileCompressed(`./dist/${ripped.css.path}`, ripped.css.data)
+}
+
+function watch(fn) {
+	let wtimeout
+	const debounce = () => {
+		if (!wtimeout) {
+			fn()
+			wtimeout = setTimeout(() => { wtimeout = null }, 200)
+		}
+	}
+	// Debounce
+	const files = collect('./', ['.html', '.css'], ['node_modules', 'dist'])
+	for (const f of files) {
+		console.log('f:', f);
+		
+		fs.watch(f, {}, debounce)
+	}
+}
+
+module.exports = {
+	build,
+	watch,
+}
+
 // Call function on every file.
-function walk(d, fn) {
+function walk(d, exclude, fn) {
 	const dir = fs.opendirSync(d)
 
 	let dirent = null
@@ -91,17 +108,30 @@ function walk(d, fn) {
 
 		const full = path.join(d, dirent.name)
 		if (dirent.isDirectory()) {
+			let ok = true
+			for (const excl of exclude) {
+				if (full.endsWith(excl)) {
+					ok = false
+					break
+				}
+			}
+			if (!ok) {
+				continue
+			}
+
 			fn(full, true) // is dir
-			walk(full, fn)
+			walk(full, exclude, fn)
 		} else {
 			fn(full, false) // is not dir
 		}
 	}
+	dir.closeSync()
 }
 
-function collect(path, extensions) {
+function collect(path, extensions, exclude) {
+	exclude = exclude || []
 	let files = []
-	walk(path, (filepath, isDir) => {
+	walk(path, exclude, (filepath, isDir) => {
 		if (isDir) {
 			return
 		}
@@ -115,6 +145,19 @@ function collect(path, extensions) {
 		}
 		if (!ok) {
 			return
+		}
+
+		if (exclude && exclude.length > 0) {
+			let ok = true
+			for (const exc of exclude) {
+				if (filepath.endsWith(exc)) {
+					ok = false
+					break
+				}
+			}
+			if (!ok) {
+				return
+			}
 		}
 
 		files.push(filepath)
