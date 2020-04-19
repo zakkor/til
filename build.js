@@ -1,5 +1,7 @@
 const fs = require('fs')
 const path = require('path')
+const htmlMinifier = require('html-minifier').minify
+const uglifyJS = require('uglify-js')
 const rip = require('./styleripper')
 
 fs.mkdir('./dist', async () => {
@@ -12,10 +14,8 @@ fs.mkdir('./dist', async () => {
 
 	let routes = {}
 	for (const page of ripped.html) {
-		const r = ('/' + removeFirstDir(page.path)).replace(/\/index.html$/, '/')
-		routes[r] = page.data
+		routes[pathToRoute(page.path)] = minifyHTML(page.data)
 	}
-
 
 	// First, create all output directories
 	walk('./pages', (filepath, isDir) => {
@@ -26,15 +26,23 @@ fs.mkdir('./dist', async () => {
 
 	for (const page of ripped.html) {
 		// Append routes except self to navigation template, and close the script tag.
-		let troutes = Object.assign({}, routes)
-		const r = ('/' + removeFirstDir(page.path)).replace(/\/index.html$/, '/')
-		delete(troutes[r])
-		troutes = JSON.stringify(troutes)
+		let selfRoutes = Object.assign({}, routes)
+		delete(selfRoutes[pathToRoute(page.path)])
+		selfRoutes = JSON.stringify(selfRoutes)
 
-		const navigation = navigationTemplate + `; const r = ${troutes} </script>`
-		let template = htmlTemplate.replace('<%navigation%>', navigation)
+		let navigation = navigationTemplate.replace('<%routes%>', `var r = ${selfRoutes}`)
+		
+		// Uglify JS.
+		navigation = uglifyJS.minify(navigation).code
+
+		let template = htmlTemplate.replace('<%navigation%>', `<script>${navigation}</script>`)
 		template = template.replace('<%body%>', page.data)
-		fs.writeFileSync(`./dist/${removeFirstDir(page.path)}`, template)
+
+		// Minify HTML.
+		const min = minifyHTML(template)
+		
+		// Write to file.
+		fs.writeFileSync(`./dist/${removeFirstDir(page.path)}`, min)
 	}
 
 	// Write CSS.
@@ -47,29 +55,28 @@ let htmlTemplate = `<!DOCTYPE html>
 <%head%>
 </head>
 <body>
-<%body%>
+<div id="root"> <%body%> </div>
 <%navigation%>
 </body>
-</html>
-`
+</html>`
 
-// <script> will be closed after we append the routes
-const navigationTemplate = `<script>
-function run() {
-  document.querySelectorAll('a[href]').forEach(e => { e.onclick = go })
+const navigationTemplate = `var root = document.querySelector('#root')
+function d() {
+  document.querySelectorAll('a[href]').forEach(function(e) { e.onclick = g })
 }
-function go(e) {
-  const p = typeof e == 'object' ? e.target.getAttribute('href') : e
-  document.querySelector('body').innerHTML = r[p]
+function g(e) {
+  var p = typeof e == 'object' ? e.target.getAttribute('href') : e
+  root.innerHTML = r[p]
   history.pushState({}, '', p)
-  run()
+  d()
   return false
 }
 window.onpopstate = function() {
-  go(location.pathname)
+  g(location.pathname)
 }
-run()
-`
+d()
+<%routes%>
+r[location.pathname] = root.innerHTML`
 
 // Call function on every file.
 function walk(d, fn) {
@@ -114,6 +121,18 @@ function collect(path, extensions) {
 	return files
 }
 
+function minifyHTML(data) {
+	return htmlMinifier(data, {
+		collapseWhitespace: true,
+		removeAttributeQuotes: true,
+		removeComments: true,
+	})
+}
+
 function removeFirstDir(p) {
 	return p.replace(/.+?\//, '')
+}
+
+function pathToRoute(p) {
+	return `/${removeFirstDir(p).replace(/index\.html$/, '')}`
 }

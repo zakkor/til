@@ -8,9 +8,11 @@
   "license": "MIT",
   "devDependencies": {
     "css-tree": "^1.0.0-alpha.39",
+    "html-minifier": "^4.0.0",
     "node-html-parser": "^1.2.16",
     "ramda": "^0.27.0",
-    "tailwindcss": "^1.2.0"
+    "tailwindcss": "^1.2.0",
+    "uglify-js": "^3.9.1"
   },
   "dependencies": {}
 }
