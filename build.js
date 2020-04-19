@@ -28,9 +28,7 @@ fs.mkdir('./dist', async () => {
 		// Append routes except self to navigation template, and close the script tag.
 		let troutes = Object.assign({}, routes)
 		const r = ('/' + removeFirstDir(page.path)).replace(/\/index.html$/, '/')
-		delete(troutes, r)
-		console.log('troutes', troutes)
-		console.log('r', r)
+		delete(troutes[r])
 		troutes = JSON.stringify(troutes)
 
 		const navigation = navigationTemplate + `; const r = ${troutes} </script>`
