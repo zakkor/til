@@ -1,0 +1,59 @@
+.btn-video-icon {
+  margin-top: -4px;
+}
+.huge-shadow {
+  box-shadow: -50px 49px 60px 5px rgba(0, 0, 0, 0.15);
+}
+.flare {
+  position: absolute;
+  background-color: rgba(251, 250, 236, 0.1);
+}
+.flare-1 {
+  margin-top: -70px;
+  margin-left: 40px;
+  border-radius: 50%;
+}
+.flare-2 {
+  margin-top: -128px;
+  margin-left: -100px;
+  border-radius: 50%;
+}
+
+@media (max-width: 1696px) {
+  .cards {
+    max-width: 1200px;
+  }
+  .cards .card {
+    @apply my-4;
+  }
+  .cards .card:last-child {
+    @apply mr-8;
+  }
+  .cards .card:not(.bg-indigo) {
+    z-index: -1;
+  }
+}
+
+@media (max-width: 1496px) {
+  .cards {
+    max-width: 800px;
+  }
+  .cards .card {
+    @apply my-4;
+  }
+  .cards .card:last-child {
+    @apply mr-8;
+  }
+  .cards .card.under-shadow {
+    z-index: -1;
+  }
+}
+
+@media (max-width: 425px) {
+  .cards {
+    max-width: 500px;
+  }
+  .cards .card {
+    margin-right: 0 !important;
+  }
+}
