@@ -5,6 +5,8 @@ const uglifyJS = require('uglify-js')
 const zlib = require('zlib')
 const rip = require('./styleripper')
 
+const ComponentRegex = /<%(.+)%>/g
+
 let HtmlTemplate = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -39,8 +41,25 @@ function build() {
 	const headbuf = fs.readFileSync('head.html')
 	HtmlTemplate = HtmlTemplate.replace('<%head%>', headbuf.toString())
 
-	const toProcess = collect('./pages', ['.html', '.css']).concat(collect('./styles', ['.css']))
-	const ripped = rip(toProcess)
+	// Gather the files we need to process
+	const proc = collect('./pages', ['.html', '.css']).concat(collect('./styles', ['.css']))
+		.map(f => { return { path: f, data: fs.readFileSync(f, 'utf8') } })
+
+	proc.filter(f => f.path.endsWith('.html'))
+		.forEach(page => {
+			// Match each component name, specified like "<%component%>"
+			let m = [];
+			while (m = ComponentRegex.exec(page.data)) {
+				const compTempl = m[0]
+				const re = new RegExp(compTempl, 'g')
+				const comp = m[1]
+				const compData = fs.readFileSync(`./components/${comp}/index.html`, 'utf8')
+
+				page.data = page.data.replace(re, compData)
+			}
+		})
+
+	const ripped = rip(proc)
 
 	let routes = {}
 	for (const page of ripped.html) {
@@ -55,7 +74,7 @@ function build() {
 	})
 
 	for (const page of ripped.html) {
-		// Append routes except self to navigation template, and close the script tag.
+		// Append routes except self to navigation template, and close the script tag
 		let selfRoutes = Object.assign({}, routes)
 		delete (selfRoutes[pathToRoute(page.path)])
 		selfRoutes = JSON.stringify(selfRoutes)
@@ -66,11 +85,11 @@ function build() {
 		let template = HtmlTemplate.replace('<%navigation%>', `<script>${navigation}</script>`)
 		template = template.replace('<%body%>', page.data)
 
-		// Write HTML to file.
+		// Write HTML to file
 		writeFileCompressed(`./dist/${removeFirstDir(page.path)}`, minifyHTML(template))
 	}
 
-	// Write CSS.
+	// Write CSS
 	writeFileCompressed(`./dist/${ripped.css.path}`, ripped.css.data)
 }
 
@@ -86,7 +105,7 @@ function watch(fn) {
 	const files = collect('./', ['.html', '.css'], ['node_modules', 'dist'])
 	for (const f of files) {
 		console.log('f:', f);
-		
+
 		fs.watch(f, {}, debounce)
 	}
 }
@@ -96,7 +115,7 @@ module.exports = {
 	watch,
 }
 
-// Call function on every file.
+// Call function on every file
 function walk(d, exclude, fn) {
 	const dir = fs.opendirSync(d)
 
