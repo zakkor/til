@@ -4,11 +4,11 @@
   "main": "./featherweight",
   "scripts": {
     "build": "./featherweight",
-    "watch": "./featherweight -w",
-    "serve": "~/.yarn/bin/http-server --brotli"
+    "watch": "./featherweight -w"
   },
   "license": "MIT",
   "devDependencies": {
+    "browser-sync": "^2.26.7",
     "css-tree": "^1.0.0-alpha.39",
     "html-minifier": "^4.0.0",
     "node-html-parser": "^1.2.16",

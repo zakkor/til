@@ -1,11 +1,9 @@
 const fs = require('fs')
-const path = require('path')
+const filepath = require('path')
 const htmlMinifier = require('html-minifier').minify
 const uglifyJS = require('uglify-js')
 const zlib = require('zlib')
 const rip = require('./styleripper')
-
-const PROD = process.env.PRODUCTION == 'true'
 
 const ComponentRegex = /<%(.+)%>/g
 
@@ -38,7 +36,7 @@ d()
 <%routes%>
 r[location.pathname] = root.innerHTML`
 
-function build() {
+function build({ prod }) {
 	// Read head.html
 	const headbuf = fs.readFileSync('head.html')
 	HtmlTemplate = HtmlTemplate.replace('<%head%>', headbuf.toString())
@@ -64,7 +62,7 @@ function build() {
 	})
 
 	// Use Styleripper to uglify HTML and CSS
-	if (PROD) {
+	if (prod) {
 		const ripped = rip(htmlFiles, cssFiles)
 		htmlFiles = ripped.htmlFiles
 		cssFiles = ripped.cssFiles
@@ -73,19 +71,26 @@ function build() {
 	let routes = {}
 	for (const page of htmlFiles) {
 		let data = page.data
-		if (PROD) {
+		if (prod) {
 			data = minifyHTML(page.data)
 		}
 		routes[pathToRoute(page.path)] = data
 	}
 
 	// Remove "dist" dir
-	fs.rmdirSync('./dist', { recursive: true })
+	walkToplevel('./dist', (path, isDir) => {
+		if (isDir) {
+			fs.rmdirSync(path, { recursive: true })
+			return
+		}
+
+		fs.unlinkSync(path)
+	})
 
 	// Create all output directories
-	walk('./pages', [], (filepath, isDir) => {
+	walk('./pages', [], (path, isDir) => {
 		if (isDir) {
-			fs.mkdirSync(`./dist/${removeFirstDir(filepath)}`, { recursive: true })
+			fs.mkdirSync(`./dist/${removeFirstDir(path)}`, { recursive: true })
 		}
 	})
 
@@ -96,24 +101,24 @@ function build() {
 		selfRoutes = JSON.stringify(selfRoutes)
 
 		let navigation = NavigationTemplate.replace('<%routes%>', `var r = ${selfRoutes}`)
-		if (PROD) {
+		if (prod) {
 			navigation = uglifyJS.minify(navigation).code
 		}
 
 		let template = HtmlTemplate.replace('<%navigation%>', `<script>${navigation}</script>`)
 		template = template.replace('<%body%>', page.data)
 
-		if (PROD) {
+		if (prod) {
 			template = minifyHTML(template)
 		}
 
 		// Write HTML to file
-		writeFile(`./dist/${removeFirstDir(page.path)}`, template)
+		writeFile(`./dist/${removeFirstDir(page.path)}`, template, prod)
 	}
 
 	// Write concatted CSS files
 	const concattedCSS = cssFiles.reduce((acc, f) => f.data + acc, '')
-	writeFile(`./dist/built.css`, concattedCSS)
+	writeFile(`./dist/built.css`, concattedCSS, prod)
 }
 
 function watch(fn) {
@@ -137,8 +142,8 @@ module.exports = {
 }
 
 // Call function on every file
-function walk(d, exclude, fn) {
-	const dir = fs.opendirSync(d)
+function walk(path, exclude, fn) {
+	const dir = fs.opendirSync(path)
 
 	let dirent = null
 	while (dirent = dir.readSync()) {
@@ -146,7 +151,7 @@ function walk(d, exclude, fn) {
 			break
 		}
 
-		const full = path.join(d, dirent.name)
+		const full = filepath.join(path, dirent.name)
 		if (dirent.isDirectory()) {
 			let ok = true
 			for (const excl of exclude) {
@@ -159,8 +164,8 @@ function walk(d, exclude, fn) {
 				continue
 			}
 
-			fn(full, true) // is dir
 			walk(full, exclude, fn)
+			fn(full, true) // is dir
 		} else {
 			fn(full, false) // is not dir
 		}
@@ -168,17 +173,31 @@ function walk(d, exclude, fn) {
 	dir.closeSync()
 }
 
+function walkToplevel(path, fn) {
+	const dir = fs.opendirSync(path)
+	let dirent = null
+	while (dirent = dir.readSync()) {
+		if (dirent === null) {
+			break
+		}
+
+		const full = filepath.join(path, dirent.name)
+		fn(full, dirent.isDirectory())
+	}
+	dir.closeSync()
+}
+
 function collect(path, extensions, exclude) {
 	exclude = exclude || []
 	let files = []
-	walk(path, exclude, (filepath, isDir) => {
+	walk(path, exclude, (path, isDir) => {
 		if (isDir) {
 			return
 		}
 
 		let ok = false
 		for (const ext of extensions) {
-			if (filepath.endsWith(ext)) {
+			if (path.endsWith(ext)) {
 				ok = true
 				break
 			}
@@ -190,7 +209,7 @@ function collect(path, extensions, exclude) {
 		if (exclude && exclude.length > 0) {
 			let ok = true
 			for (const exc of exclude) {
-				if (filepath.endsWith(exc)) {
+				if (path.endsWith(exc)) {
 					ok = false
 					break
 				}
@@ -200,7 +219,7 @@ function collect(path, extensions, exclude) {
 			}
 		}
 
-		files.push(filepath)
+		files.push(path)
 	})
 	return files
 }
@@ -213,8 +232,8 @@ function minifyHTML(data) {
 	})
 }
 
-function writeFile(path, data) {
-	if (PROD) {
+function writeFile(path, data, prod) {
+	if (prod) {
 		fs.writeFileSync(`${path}.br`, zlib.brotliCompressSync(data))
 		return
 	}

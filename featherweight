@@ -1,13 +1,19 @@
 #!/usr/bin/env node
 const fw = require('./build')
 
+const PROD = process.env.PROD == 'true'
+
+const build = () => {
+	fw.build({ prod: PROD })
+}
+
 // Watch
 if (process.argv.includes('-w')) {
 	fw.watch(() => {
-		timed(fw.build)
+		timed(build)
 	})
 } else {
-	timed(fw.build)
+	timed(build)
 }
 
 function timed(fn) {

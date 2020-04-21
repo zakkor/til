@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+
+cd dist && ../node_modules/.bin/browser-sync start --server --files "*.html"
