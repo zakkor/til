@@ -33,22 +33,23 @@ function rip(htmlFiles, cssFiles) {
 			return { name, total: name.length * sel.count }
 		}).sort((a, b) => b.total - a.total)
 
-	// Afterwards, nodes are renamed and recorded in `rename`, and the resulting CSS is returned
-	cssFiles = cssFiles.map(f => {
-		return {
-			path: f.path,
-			data: processCSS(sorted, rename, f.ast)
-		}
-	})
-
-	// Go through HTML files again, and rewrite all nodes according to `rename`
-	htmlFiles = htmlFiles.map(f => {
-		processHTMLNodeChildren(rename, f.ast)
-		return {
-			path: f.path,
-			data: f.ast.toString(),
-		}
-	})
+	return {
+		// Afterwards, nodes are renamed and recorded in `rename`, and the resulting CSS is returned
+		cssFiles: cssFiles.map(f => {
+			return {
+				path: f.path,
+				data: processCSS(sorted, rename, f.ast)
+			}
+		}),
+		// Go through HTML files again, and rewrite all nodes according to `rename`
+		htmlFiles: htmlFiles.map(f => {
+			processHTMLNodeChildren(rename, f.ast)
+			return {
+				path: f.path,
+				data: f.ast.toString(),
+			}
+		})
+	}
 }
 
 module.exports = rip

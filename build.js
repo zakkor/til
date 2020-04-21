@@ -47,8 +47,8 @@ function build() {
 	let files = collect('./pages', ['.html', '.css']).concat(collect('./styles', ['.css']))
 		.map(f => { return { path: f, data: fs.readFileSync(f, 'utf8') } })
 
-	const htmlFiles = files.filter(f => f.path.endsWith('.html'))
-	const cssFiles = files.filter(f => f.path.endsWith('.css'))
+	let htmlFiles = files.filter(f => f.path.endsWith('.html'))
+	let cssFiles = files.filter(f => f.path.endsWith('.css'))
 
 	htmlFiles.forEach(page => {
 		// Match each component name, specified like "<%component%>"
@@ -65,7 +65,9 @@ function build() {
 
 	// Use Styleripper to uglify HTML and CSS
 	if (PROD) {
-		rip(htmlFiles, cssFiles)
+		const ripped = rip(htmlFiles, cssFiles)
+		htmlFiles = ripped.htmlFiles
+		cssFiles = ripped.cssFiles
 	}
 
 	let routes = {}
@@ -213,9 +215,10 @@ function minifyHTML(data) {
 
 function writeFile(path, data) {
 	if (PROD) {
-		data = zlib.brotliCompressSync(data)
-		path = `${path}.br`
+		fs.writeFileSync(`${path}.br`, zlib.brotliCompressSync(data))
+		return
 	}
+
 	fs.writeFileSync(path, data)
 }
 
