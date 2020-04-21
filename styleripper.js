@@ -1,13 +1,9 @@
-const fs = require('fs')
 const csstree = require('css-tree')
 const htmlparse = require('node-html-parser')
 
 // Takes a list of .html and .css files, [{ path: string, data: string }, ...]
 // Ordering does not matter, but file extension does
-function rip(files) {
-	const htmlFiles = files.filter(f => f.path.endsWith('.html'))
-	const cssFiles = files.filter(f => f.path.endsWith('.css'))
-
+function rip(htmlFiles, cssFiles) {
 	// classnames contains information about the class name nodes appearing in all input files
 	// `count` is the number of times each class name appears, created first when parsing HTML
 	// and updated when parsing CSS
@@ -38,26 +34,21 @@ function rip(files) {
 		}).sort((a, b) => b.total - a.total)
 
 	// Afterwards, nodes are renamed and recorded in `rename`, and the resulting CSS is returned
-	// Concatenate results into a string of all CSS file contents
-	const css = {
-		path: 'built.css',
-		data: cssFiles.map(f => processCSS(sorted, rename, f.ast)).reduce((x, acc) => x + acc, ''),
-	}
+	cssFiles = cssFiles.map(f => {
+		return {
+			path: f.path,
+			data: processCSS(sorted, rename, f.ast)
+		}
+	})
 
 	// Go through HTML files again, and rewrite all nodes according to `rename`
-	// Gather each file's rewritten content in an array
-	const html = htmlFiles.map(f => {
+	htmlFiles = htmlFiles.map(f => {
 		processHTMLNodeChildren(rename, f.ast)
 		return {
 			path: f.path,
 			data: f.ast.toString(),
 		}
 	})
-
-	return {
-		html,
-		css,
-	}
 }
 
 module.exports = rip

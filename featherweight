@@ -14,5 +14,12 @@ function timed(fn) {
 	const start = process.hrtime()
 	fn()
 	const end = process.hrtime(start)
-	console.log(`Build finished in ${end[1] / 1000000}ms`)
+
+	// If time is under a second, format like "340ms"
+	let fmt = `${(end[1] / 1e6).toPrecision(3)}ms`
+	if (end[0] > 0) {
+		// Otherwise, format like "3.150s"
+		fmt = `${end[0]}${(end[1] / 1e9).toPrecision(3).toString().slice(1)}s`
+	}
+	console.log(`Build finished in ${fmt}`)
 }

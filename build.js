@@ -5,6 +5,8 @@ const uglifyJS = require('uglify-js')
 const zlib = require('zlib')
 const rip = require('./styleripper')
 
+const PROD = process.env.PRODUCTION == 'true'
+
 const ComponentRegex = /<%(.+)%>/g
 
 let HtmlTemplate = `<!DOCTYPE html>
@@ -42,55 +44,74 @@ function build() {
 	HtmlTemplate = HtmlTemplate.replace('<%head%>', headbuf.toString())
 
 	// Gather the files we need to process
-	const proc = collect('./pages', ['.html', '.css']).concat(collect('./styles', ['.css']))
+	let files = collect('./pages', ['.html', '.css']).concat(collect('./styles', ['.css']))
 		.map(f => { return { path: f, data: fs.readFileSync(f, 'utf8') } })
 
-	proc.filter(f => f.path.endsWith('.html'))
-		.forEach(page => {
-			// Match each component name, specified like "<%component%>"
-			let m = [];
-			while (m = ComponentRegex.exec(page.data)) {
-				const compTempl = m[0]
-				const re = new RegExp(compTempl, 'g')
-				const comp = m[1]
-				const compData = fs.readFileSync(`./components/${comp}/index.html`, 'utf8')
+	const htmlFiles = files.filter(f => f.path.endsWith('.html'))
+	const cssFiles = files.filter(f => f.path.endsWith('.css'))
 
-				page.data = page.data.replace(re, compData)
-			}
-		})
+	htmlFiles.forEach(page => {
+		// Match each component name, specified like "<%component%>"
+		let m = []
+		while (m = ComponentRegex.exec(page.data)) {
+			const compTempl = m[0]
+			const re = new RegExp(compTempl, 'g')
+			const comp = m[1]
+			const compData = fs.readFileSync(`./components/${comp}/index.html`, 'utf8')
 
-	const ripped = rip(proc)
+			page.data = page.data.replace(re, compData)
+		}
+	})
 
-	let routes = {}
-	for (const page of ripped.html) {
-		routes[pathToRoute(page.path)] = minifyHTML(page.data)
+	// Use Styleripper to uglify HTML and CSS
+	if (PROD) {
+		rip(htmlFiles, cssFiles)
 	}
 
-	// First, create all output directories
+	let routes = {}
+	for (const page of htmlFiles) {
+		let data = page.data
+		if (PROD) {
+			data = minifyHTML(page.data)
+		}
+		routes[pathToRoute(page.path)] = data
+	}
+
+	// Remove "dist" dir
+	fs.rmdirSync('./dist', { recursive: true })
+
+	// Create all output directories
 	walk('./pages', [], (filepath, isDir) => {
 		if (isDir) {
 			fs.mkdirSync(`./dist/${removeFirstDir(filepath)}`, { recursive: true })
 		}
 	})
 
-	for (const page of ripped.html) {
+	for (const page of htmlFiles) {
 		// Append routes except self to navigation template, and close the script tag
 		let selfRoutes = Object.assign({}, routes)
 		delete (selfRoutes[pathToRoute(page.path)])
 		selfRoutes = JSON.stringify(selfRoutes)
 
 		let navigation = NavigationTemplate.replace('<%routes%>', `var r = ${selfRoutes}`)
-		navigation = uglifyJS.minify(navigation).code
+		if (PROD) {
+			navigation = uglifyJS.minify(navigation).code
+		}
 
 		let template = HtmlTemplate.replace('<%navigation%>', `<script>${navigation}</script>`)
 		template = template.replace('<%body%>', page.data)
 
+		if (PROD) {
+			template = minifyHTML(template)
+		}
+
 		// Write HTML to file
-		writeFileCompressed(`./dist/${removeFirstDir(page.path)}`, minifyHTML(template))
+		writeFile(`./dist/${removeFirstDir(page.path)}`, template)
 	}
 
-	// Write CSS
-	writeFileCompressed(`./dist/${ripped.css.path}`, ripped.css.data)
+	// Write concatted CSS files
+	const concattedCSS = cssFiles.reduce((acc, f) => f.data + acc, '')
+	writeFile(`./dist/built.css`, concattedCSS)
 }
 
 function watch(fn) {
@@ -104,8 +125,6 @@ function watch(fn) {
 	// Debounce
 	const files = collect('./', ['.html', '.css'], ['node_modules', 'dist'])
 	for (const f of files) {
-		console.log('f:', f);
-
 		fs.watch(f, {}, debounce)
 	}
 }
@@ -192,9 +211,12 @@ function minifyHTML(data) {
 	})
 }
 
-function writeFileCompressed(path, data) {
-	const compr = zlib.brotliCompressSync(data)
-	fs.writeFileSync(`${path}.br`, compr)
+function writeFile(path, data) {
+	if (PROD) {
+		data = zlib.brotliCompressSync(data)
+		path = `${path}.br`
+	}
+	fs.writeFileSync(path, data)
 }
 
 function removeFirstDir(p) {
