@@ -1,19 +1,17 @@
 {
-  "name": "featherweight",
-  "version": "1.0.0",
-  "main": "./featherweight",
-  "scripts": {
-    "build": "./featherweight",
-    "watch": "./featherweight -w"
-  },
+  "name": "til",
+	"version": "1.0.0",
+	"bin": {
+		"til": "./til"
+	},
   "license": "MIT",
   "devDependencies": {
-    "browser-sync": "^2.26.7",
+  },
+  "dependencies": {
+		"browser-sync": "^2.26.7",
     "css-tree": "^1.0.0-alpha.39",
     "html-minifier": "^4.0.0",
     "node-html-parser": "^1.2.16",
-    "tailwindcss": "^1.2.0",
     "uglify-js": "^3.9.1"
-  },
-  "dependencies": {}
+	}
 }

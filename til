@@ -1,15 +1,16 @@
 #!/usr/bin/env node
-const fw = require('./build')
+const til = require('./build')
+const browserSync = require('browser-sync').create()
 
 const PROD = process.env.PROD == 'true'
 
 const build = () => {
-	fw.build({ prod: PROD })
+	til.build({ prod: PROD })
 }
 
 // Watch
 if (process.argv.includes('-w')) {
-	fw.watch(() => {
+	til.watch(() => {
 		timed(build)
 	})
 } else {
