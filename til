@@ -24,10 +24,14 @@ if (process.argv.includes('dev')) {
 		notify: false,
 		logPrefix: '',
 	})
-	til.watch(() => {
+	til.watch(file => {
 		// Development build
 		build(false)
-		browserSync.reload('*.html', '*.css')
+		let reload = ['*.html', '*.css']
+		if (file.endsWith('.css')) {
+			reload = ['*.css']
+		}
+		browserSync.reload(...reload)
 	})
 } else {
 	// Production build

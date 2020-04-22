@@ -127,18 +127,23 @@ function build({ prod }) {
 }
 
 function watch(fn) {
-	let wtimeout
-	const debounce = () => {
-		if (!wtimeout) {
-			// If we don't wait a bit before running the function, some files may not be fully written
-			setTimeout(fn, 100)
-			wtimeout = setTimeout(() => { wtimeout = null }, 200)
+	const watcher = (file) => {
+		let wtimeout
+		// Debounce
+		return () => {
+			if (!wtimeout) {
+				// If we don't wait a bit before running the function, some files may not be fully written
+				setTimeout(() => {
+					fn(file)
+				}, 100)
+				wtimeout = setTimeout(() => { wtimeout = null }, 200)
+			}
 		}
 	}
-	// Debounce
+
 	const files = collect('./', ['.html', '.css'], ['node_modules', 'dist'])
 	for (const f of files) {
-		fs.watch(f, {}, debounce)
+		fs.watch(f, {}, watcher(f))
 	}
 }
 
