@@ -6,16 +6,14 @@
 
 ## Usage
 
-### Build for development
+### Start development server
 
-`til`
+`til dev`
 
-### Build for development and watch for changes
-
-`til -w`
+Starts a development server at http://localhost:3000, watching for files changes, with live reload.
 
 ### Building for production
 
-Production builds have globally uglified CSS and HTML, JS and brotli compression enabled by default.
+`til`
 
-`PROD=true til`
+Production builds have globally uglified CSS and HTML, JS and brotli compression enabled by default.

@@ -13,7 +13,9 @@ let HtmlTemplate = `<!DOCTYPE html>
 <%head%>
 </head>
 <body>
-<div id="root"> <%body%> </div>
+<div id="root">
+<%root%>
+</div>
 <%navigation%>
 </body>
 </html>`
@@ -38,13 +40,13 @@ r[location.pathname] = root.innerHTML`
 
 function build({ prod }) {
 	// Read head.html
-	const headbuf = fs.readFileSync('head.html')
-	HtmlTemplate = HtmlTemplate.replace('<%head%>', headbuf.toString())
+	const head = fs.readFileSync('head.html', 'utf8')
+	HtmlTemplate = HtmlTemplate.replace('<%head%>', head)
 
 	// Gather the files we need to process
 	let files = collect('./pages', ['.html', '.css']).concat(collect('./styles', ['.css']))
 		.map(f => { return { path: f, data: fs.readFileSync(f, 'utf8') } })
-
+	
 	let htmlFiles = files.filter(f => f.path.endsWith('.html'))
 	let cssFiles = files.filter(f => f.path.endsWith('.css'))
 
@@ -109,7 +111,7 @@ function build({ prod }) {
 		}
 
 		let template = HtmlTemplate.replace('<%navigation%>', `<script>${navigation}</script>`)
-		template = template.replace('<%body%>', page.data)
+		template = template.replace('<%root%>', page.data)
 
 		if (prod) {
 			template = minifyHTML(template)
@@ -128,7 +130,8 @@ function watch(fn) {
 	let wtimeout
 	const debounce = () => {
 		if (!wtimeout) {
-			fn()
+			// If we don't wait a bit before running the function, some files may not be fully written
+			setTimeout(fn, 100)
 			wtimeout = setTimeout(() => { wtimeout = null }, 200)
 		}
 	}
