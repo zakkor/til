@@ -123,7 +123,7 @@ function cleanCSSIdentifier(n) {
 }
 
 function parseHTML(classnames, data) {
-	const ast = htmlparse.parse(data)
+	const ast = htmlparse.parse(data, { script: true, style: true })
 	parseHTMLNodeChildren(classnames, ast)
 	return ast
 }
@@ -146,6 +146,7 @@ function parseHTMLNodeChildren(classnames, node) {
 }
 
 function processHTMLNodeChildren(rename, node) {
+	// Rename classes
 	if (node.classNames) {
 		const replace = node.classNames.map(c => {
 			if (c in rename) {

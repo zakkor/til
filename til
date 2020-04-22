@@ -27,10 +27,7 @@ if (process.argv.includes('dev')) {
 	til.watch(file => {
 		// Development build
 		build(false)
-		let reload = ['*.html', '*.css']
-		if (file.endsWith('.css')) {
-			reload = ['*.css']
-		}
+		const reload = file.endsWith('.css') ? ['*.css'] : ['*.html', '*.css']
 		browserSync.reload(...reload)
 	})
 } else {

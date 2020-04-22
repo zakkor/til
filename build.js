@@ -44,11 +44,15 @@ function build({ prod }) {
 	HtmlTemplate = HtmlTemplate.replace('<%head%>', head)
 
 	// Gather the files we need to process
-	let files = collect('./pages', ['.html', '.css']).concat(collect('./styles', ['.css']))
+	let files = collect('./pages', ['.html', '.css', '.js']).concat(collect('./styles', ['.css']))
 		.map(f => { return { path: f, data: fs.readFileSync(f, 'utf8') } })
-	
-	let htmlFiles = files.filter(f => f.path.endsWith('.html'))
-	let cssFiles = files.filter(f => f.path.endsWith('.css'))
+
+	const keep = ext => {
+		return (f) => f.path.endsWith(ext)
+	}
+	let htmlFiles = files.filter(keep('.html'))
+	let cssFiles = files.filter(keep('.css'))
+	let jsFiles = files.filter(keep('.js'))
 
 	htmlFiles.forEach(page => {
 		// Match each component name, specified like "<%component%>"
@@ -122,8 +126,17 @@ function build({ prod }) {
 	}
 
 	// Write concatted CSS files
-	const concattedCSS = cssFiles.reduce((acc, f) => f.data + acc, '')
-	writeFile(`./dist/built.css`, concattedCSS, prod)
+	const cssBundle = concatFiles(cssFiles)
+	writeFile('./dist/bundle.css', cssBundle, prod)
+
+	// Uglify JS, concat to bundle.js, and write to file.
+	if (prod) {
+		for (const f of jsFiles) {
+			f.data = uglifyJS.minify(f.data).code
+		}
+	}
+	const jsBundle = concatFiles(jsFiles)
+	writeFile('./dist/bundle.js', jsBundle, prod)
 }
 
 function watch(fn) {
@@ -141,7 +154,7 @@ function watch(fn) {
 		}
 	}
 
-	const files = collect('./', ['.html', '.css'], ['node_modules', 'dist'])
+	const files = collect('./', ['.html', '.css', '.js'], ['node_modules', 'dist'])
 	for (const f of files) {
 		fs.watch(f, {}, watcher(f))
 	}
@@ -240,6 +253,8 @@ function minifyHTML(data) {
 		collapseWhitespace: true,
 		removeAttributeQuotes: true,
 		removeComments: true,
+		processScripts: true,
+		minifyJS: true,
 	})
 }
 
@@ -250,6 +265,10 @@ function writeFile(path, data, prod) {
 	}
 
 	fs.writeFileSync(path, data)
+}
+
+function concatFiles(files) {
+	return files.reduce((acc, f) => f.data + acc, '')
 }
 
 function removeFirstDir(p) {
