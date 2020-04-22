@@ -77,6 +77,9 @@ function build({ prod }) {
 		routes[pathToRoute(page.path)] = data
 	}
 
+	// Ignore error if already exists
+	fs.mkdirSync('./dist', { recursive: true })
+
 	// Remove "dist" dir
 	walkToplevel('./dist', (path, isDir) => {
 		if (isDir) {
