@@ -22,17 +22,18 @@ let HtmlTemplate = `<!DOCTYPE html>
 
 const NavigationTemplate = `var root = document.querySelector('#root')
 function d() {
-  document.querySelectorAll('a[href]').forEach(function(e) { e.onclick = g })
+	document.querySelectorAll('a[href]').forEach(function(e) { e.onclick = g })
 }
 function g(e) {
-  var p = typeof e == 'object' ? e.target.getAttribute('href') : e
-  root.innerHTML = r[p]
-  history.pushState({}, '', p)
-  d()
-  return false
+	var t = e.target.closest('a[href]')
+	var p = typeof e == 'object' ? t.getAttribute('href') : e
+	root.innerHTML = r[p]
+	history.pushState({}, '', p)
+	d()
+	return false
 }
 window.onpopstate = function() {
-  g(location.pathname)
+	g(location.pathname)
 }
 d()
 <%routes%>

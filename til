@@ -22,6 +22,7 @@ if (process.argv.includes('dev')) {
 		server: './dist',
 		ui: false,
 		notify: false,
+		open: false,
 		logPrefix: '',
 	})
 	til.watch(file => {
