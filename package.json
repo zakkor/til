@@ -1,5 +1,5 @@
 {
-  "name": "til-cli",
+  "name": "@til-js/til",
 	"version": "0.0.1",
 	"bin": {
 		"til": "./til"
