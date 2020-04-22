@@ -27,6 +27,9 @@ function d() {
 function g(e) {
 	var t = e.target.closest('a[href]')
 	var p = typeof e == 'object' ? t.getAttribute('href') : e
+	if (!(p in r)) {
+		return false
+	}
 	root.innerHTML = r[p]
 	history.pushState({}, '', p)
 	d()
