@@ -1,6 +1,6 @@
 {
-  "name": "til",
-	"version": "1.0.0",
+  "name": "til-cli",
+	"version": "0.0.1",
 	"bin": {
 		"til": "./til"
 	},
