@@ -48,7 +48,9 @@ function build({ prod }) {
 	HtmlTemplate = HtmlTemplate.replace('<%head%>', head)
 
 	// Gather the files we need to process
-	let files = collect('./pages', ['.html', '.css', '.js']).concat(collect('./styles', ['.css']))
+	let files = collect('./pages', ['.html', '.css', '.js'])
+		.concat(collect('./styles', ['.css']))
+		.concat(collect('./static', ['.svg']))
 		.map(f => { return { path: f, data: fs.readFileSync(f, 'utf8') } })
 
 	const keep = ext => {
@@ -57,6 +59,7 @@ function build({ prod }) {
 	let htmlFiles = files.filter(keep('.html'))
 	let cssFiles = files.filter(keep('.css'))
 	let jsFiles = files.filter(keep('.js'))
+	let images = files.filter(keep('.svg'))
 
 	htmlFiles.forEach(page => {
 		// Match each component name, specified like "<%component%>"
@@ -141,6 +144,12 @@ function build({ prod }) {
 	}
 	const jsBundle = concatFiles(jsFiles)
 	writeFile('./dist/bundle.js', jsBundle, prod)
+
+	// Write static files
+	fs.mkdirSync('./dist/static', { recursive: true })
+	for (const img of images) {
+		fs.writeFileSync(`./dist/${img.path}`, img.data)
+	}
 }
 
 function watch(fn) {
