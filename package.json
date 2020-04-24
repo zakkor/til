@@ -1,17 +1,19 @@
 {
-  "name": "@til-js/til",
+	"name": "@til-js/til",
 	"version": "0.0.1",
 	"bin": {
 		"til": "./til"
 	},
-  "license": "MIT",
-  "devDependencies": {
-  },
-  "dependencies": {
+	"license": "MIT",
+	"devDependencies": {},
+	"dependencies": {
+		"@types/css-tree": "^1.0.3",
+		"@types/html-minifier": "^3.5.3",
+		"@types/node": "^13.13.2",
 		"browser-sync": "^2.26.7",
-    "css-tree": "^1.0.0-alpha.39",
-    "html-minifier": "^4.0.0",
-    "node-html-parser": "^1.2.16",
-    "uglify-js": "^3.9.1"
+		"css-tree": "^1.0.0-alpha.39",
+		"html-minifier": "^4.0.0",
+		"node-html-parser": "^1.2.16",
+		"uglify-js": "^3.9.1"
 	}
 }

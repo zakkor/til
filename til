@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-const til = require('./build')
+const til = require('./dist/build')
 const browserSync = require('browser-sync').create()
+
+const PROD = process.env.PROD == undefined ? true : process.env.PROD == 'true'
 
 const build = prod => {
 	const start = process.hrtime()
@@ -25,6 +27,11 @@ if (process.argv.includes('dev')) {
 		open: false,
 		logPrefix: '',
 	})
+	
+	// Initial build
+	build(false)
+	browserSync.reload(['*.html'])
+
 	til.watch(file => {
 		// Development build
 		build(false)
@@ -32,6 +39,5 @@ if (process.argv.includes('dev')) {
 		browserSync.reload(...reload)
 	})
 } else {
-	// Production build
-	build(true)
+	build(PROD)
 }

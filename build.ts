@@ -1,9 +1,9 @@
-const fs = require('fs')
-const filepath = require('path')
-const htmlMinifier = require('html-minifier').minify
-const uglifyJS = require('uglify-js')
-const zlib = require('zlib')
-const rip = require('./styleripper')
+import fs from 'fs'
+import filepath from 'path'
+import htmlMinifier from 'html-minifier'
+import uglifyJS from 'uglify-js'
+import zlib from 'zlib'
+import { rip, RipExternalCSSResult, RipInlineCSSResult } from './styleripper'
 
 const ComponentRegex = /<%(.+)%>/g
 
@@ -42,19 +42,31 @@ d()
 <%routes%>
 r[location.pathname] = root.innerHTML`
 
-function build({ prod }) {
+export type File = {
+	path: string
+	data: string
+}
+
+type BuildOptions = {
+	prod: boolean
+}
+
+type WalkFn = (path: string, isDir: boolean) => void
+type WatchFn = (path: string) => void
+
+function build({ prod }: BuildOptions) {
 	// Read head.html
 	const head = fs.readFileSync('head.html', 'utf8')
 	HtmlTemplate = HtmlTemplate.replace('<%head%>', head)
 
 	// Gather the files we need to process
-	let files = collect('./pages', ['.html', '.css', '.js'])
+	let files: File[] = collect('./pages', ['.html', '.css', '.js'])
 		.concat(collect('./styles', ['.css']))
 		.concat(collect('./static', ['.svg']))
 		.map(f => { return { path: f, data: fs.readFileSync(f, 'utf8') } })
 
-	const keep = ext => {
-		return (f) => f.path.endsWith(ext)
+	const keep = (ext: string) => {
+		return (f: File) => f.path.endsWith(ext)
 	}
 	let htmlFiles = files.filter(keep('.html'))
 	let cssFiles = files.filter(keep('.css'))
@@ -63,7 +75,7 @@ function build({ prod }) {
 
 	htmlFiles.forEach(page => {
 		// Match each component name, specified like "<%component%>"
-		let m = []
+		let m: RegExpExecArray | null
 		while (m = ComponentRegex.exec(page.data)) {
 			const compTempl = m[0]
 			const re = new RegExp(compTempl, 'g')
@@ -76,12 +88,22 @@ function build({ prod }) {
 
 	// Use Styleripper to uglify HTML and CSS
 	if (prod) {
-		const ripped = rip(htmlFiles, cssFiles)
-		htmlFiles = ripped.htmlFiles
-		cssFiles = ripped.cssFiles
+		const ripped = rip(htmlFiles, cssFiles, { mode: 'InlineCSS' })
+		const rippedExternal = ripped as RipExternalCSSResult
+		if (rippedExternal) {
+			htmlFiles = rippedExternal.htmlFiles
+			cssFiles = rippedExternal.cssFiles
+			console.log('html', htmlFiles)
+			console.log('css', cssFiles)
+		}
+		const rippedInline = ripped as RipInlineCSSResult
+		if (rippedInline) {
+			console.log('inline', rippedInline)
+			return
+		}
 	}
 
-	let routes = {}
+	let routes: { [index: string]: string } = {}
 	for (const page of htmlFiles) {
 		let data = page.data
 		if (prod) {
@@ -112,11 +134,12 @@ function build({ prod }) {
 
 	for (const page of htmlFiles) {
 		// Append routes except self to navigation template, and close the script tag
-		let selfRoutes = Object.assign({}, routes)
-		delete (selfRoutes[pathToRoute(page.path)])
-		selfRoutes = JSON.stringify(selfRoutes)
+		let pageRoutes = Object.assign({}, routes)
+		// Delete this page from routes, we can add the page HTML to the routes after the page loads
+		delete (pageRoutes[pathToRoute(page.path)])
+		const routesJSON = JSON.stringify(pageRoutes)
 
-		let navigation = NavigationTemplate.replace('<%routes%>', `var r = ${selfRoutes}`)
+		let navigation = NavigationTemplate.replace('<%routes%>', `var r = ${routesJSON}`)
 		if (prod) {
 			navigation = uglifyJS.minify(navigation).code
 		}
@@ -152,12 +175,12 @@ function build({ prod }) {
 	}
 }
 
-function watch(fn) {
-	const watcher = (file) => {
-		let wtimeout
+function watch(fn: WatchFn) {
+	const watcher = (file: string) => {
+		let wtimeout: NodeJS.Timeout | null
 		// Debounce
 		return () => {
-			if (!wtimeout) {
+			if (wtimeout == null) {
 				// If we don't wait a bit before running the function, some files may not be fully written
 				setTimeout(() => {
 					fn(file)
@@ -167,9 +190,9 @@ function watch(fn) {
 		}
 	}
 
-	const files = collect('./', ['.html', '.css', '.js'], ['node_modules', 'dist'])
-	for (const f of files) {
-		fs.watch(f, {}, watcher(f))
+	const paths = collect('./', ['.html', '.css', '.js'], ['node_modules', 'dist'])
+	for (const p of paths) {
+		fs.watch(p, {}, watcher(p))
 	}
 }
 
@@ -179,10 +202,10 @@ module.exports = {
 }
 
 // Call function on every file
-function walk(path, exclude, fn) {
+function walk(path: string, exclude: string[], fn: WalkFn): void {
 	const dir = fs.opendirSync(path)
 
-	let dirent = null
+	let dirent: fs.Dirent
 	while (dirent = dir.readSync()) {
 		if (dirent === null) {
 			break
@@ -210,7 +233,8 @@ function walk(path, exclude, fn) {
 	dir.closeSync()
 }
 
-function walkToplevel(path, fn) {
+
+function walkToplevel(path: string, fn: WalkFn): void {
 	const dir = fs.opendirSync(path)
 	let dirent = null
 	while (dirent = dir.readSync()) {
@@ -224,10 +248,9 @@ function walkToplevel(path, fn) {
 	dir.closeSync()
 }
 
-function collect(path, extensions, exclude) {
-	exclude = exclude || []
-	let files = []
-	walk(path, exclude, (path, isDir) => {
+function collect(path: string, extensions: string[], exclude: string[] = []): string[] {
+	let files: string[] = []
+	walk(path, exclude, (path: string, isDir: boolean) => {
 		if (isDir) {
 			return
 		}
@@ -258,20 +281,20 @@ function collect(path, extensions, exclude) {
 
 		files.push(path)
 	})
+
 	return files
 }
 
-function minifyHTML(data) {
-	return htmlMinifier(data, {
+function minifyHTML(data: string): string {
+	return htmlMinifier.minify(data, {
 		collapseWhitespace: true,
 		removeAttributeQuotes: true,
 		removeComments: true,
-		processScripts: true,
 		minifyJS: true,
 	})
 }
 
-function writeFile(path, data, prod) {
+function writeFile(path: string, data: string, prod: boolean): void {
 	if (prod) {
 		fs.writeFileSync(`${path}.br`, zlib.brotliCompressSync(data))
 		return
@@ -280,14 +303,14 @@ function writeFile(path, data, prod) {
 	fs.writeFileSync(path, data)
 }
 
-function concatFiles(files) {
+function concatFiles(files: File[]): string {
 	return files.reduce((acc, f) => f.data + acc, '')
 }
 
-function removeFirstDir(p) {
-	return p.replace(/.+?\//, '')
+function removeFirstDir(path: string): string {
+	return path.replace(/.+?\//, '')
 }
 
-function pathToRoute(p) {
-	return `/${removeFirstDir(p).replace(/index\.html$/, '')}`
+function pathToRoute(path: string): string {
+	return `/${removeFirstDir(path).replace(/index\.html$/, '')}`
 }
