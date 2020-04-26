@@ -3,11 +3,8 @@ import nodeHTMLParser, { Node as HTMLNode, HTMLElement } from 'node-html-parser'
 import { File } from './build'
 
 type Options = {
-	mode: Mode
+	minify: boolean
 }
-
-export const MODES = ['inlineCSS', 'externalCSS'] as const
-export type Mode = (typeof MODES)[number] // Union type
 
 type ParsedFile = {
 	file: File
@@ -18,30 +15,7 @@ type NodeOccurrences = {
 	[index: string]: number
 }
 
-export type RipInlineCSSResult = HTMLWithInlineCSSFile[]
-
-type HTMLWithInlineCSSFile = {
-	path: string
-	data: string
-	css: string
-}
-
-export type RipExternalCSSResult = {
-	htmlFiles: File[]
-	cssFiles: File[]
-}
-
-export function rip(htmlFiles: File[], cssFiles: File[], options: Options): RipInlineCSSResult | RipExternalCSSResult {
-	switch (options.mode) {
-		case 'inlineCSS':
-			return ripInlineCSS(htmlFiles, cssFiles)
-		case 'externalCSS':
-			return ripExternalCSS(htmlFiles, cssFiles)
-	}
-}
-
-// TODO: documentation
-function ripInlineCSS(htmlFiles: File[], cssFiles: File[]): RipInlineCSSResult {
+export function rip(htmlFiles: File[], cssFiles: File[], options: Options): File[] {
 	return htmlFiles.map(html => {
 		// Determine total node usage for this (HTML; CSS...) pair
 		let nodes: NodeOccurrences = {}
@@ -63,69 +37,28 @@ function ripInlineCSS(htmlFiles: File[], cssFiles: File[]): RipInlineCSSResult {
 		let rename: { [index: string]: string } = {}
 
 		// CSS nodes are renamed and remembered in `rename`, and the resulting CSS is returned
-		// In "InlineCSS" mode each HTML file gets its own bundle of CSS, so we concat the results
+		// Each HTML file gets its own bundle of CSS, so we concat the results
 		const inlineCSS: string = pcssFiles.map(pcss => {
+			let data = pcss.file.data
+			if (options.minify) {
+				data = renameCSSNodes(names, rename, (pcss.ast as CSSNode))
+			}
 			return {
 				path: pcss.file.path,
-				data: renameCSSNodes(names, rename, (pcss.ast as CSSNode))
+				data,
 			}
 		}).reduce((acc, css) => css.data + acc, '')
 
-		// Rewrite all nodes according to `rename`
-		renameHTMLNodes(rename, ast)
+		if (options.minify) {
+			// Rewrite all nodes according to `rename`
+			renameHTMLNodes(rename, ast)
+		}
 
 		return {
 			path: html.path,
-			data: ast.toString(),
-			css: inlineCSS,
+			data: `<style>${inlineCSS}</style>` + ast.toString(),
 		}
 	})
-}
-
-function ripExternalCSS(htmlFiles: File[], cssFiles: File[]): RipExternalCSSResult {
-	// nodes contains information about the class name nodes appearing in all input files
-	const nodes: NodeOccurrences = {}
-
-	// renames contains information describing which nodes to rename to what
-	const rename: { [index: string]: string } = {}
-
-	const phtmlFiles: ParsedFile[] = htmlFiles.map(html => {
-		// Parse HTML into an AST, incrementing each occurrence of every renameable node.
-		// Save AST on object to reuse later when renaming each node
-		const ast = parseAndTrackHTMLNodes(nodes, html.data)
-		return { file: html, ast }
-	})
-
-	const pcssFiles: ParsedFile[] = cssFiles.map(css => {
-		// Remove unused nodes, then increment each node occurrence
-		const ast = parseAndTrackCSSNodes(nodes, css.data)
-		return { file: css, ast }
-	})
-
-	// Calculate the total byte size of each classname (count * name length) and collect it into an array so we can sort it
-	let sorted = sortedNames(nodes)
-
-	// Afterwards, nodes are renamed and recorded in `rename`, and the resulting CSS is returned
-	const rippedCSS: File[] = pcssFiles.map(pcss => {
-		return {
-			path: pcss.file.path,
-			data: renameCSSNodes(sorted, rename, (pcss.ast as CSSNode))
-		}
-	})
-
-	// Go through HTML files again, and rewrite all nodes according to `rename`
-	const rippedHTML: File[] = phtmlFiles.map(phtml => {
-		renameHTMLNodes(rename, (phtml.ast as HTMLNode))
-		return {
-			path: phtml.file.path,
-			data: phtml.ast.toString(),
-		}
-	})
-
-	return {
-		htmlFiles: rippedHTML,
-		cssFiles: rippedCSS,
-	}
 }
 
 function parseAndTrackCSSNodes(nodes: NodeOccurrences, data: string): CSSNode {

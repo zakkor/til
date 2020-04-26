@@ -3,7 +3,7 @@ import filepath from 'path'
 import htmlMinifier from 'html-minifier'
 import uglifyJS from 'uglify-js'
 import zlib from 'zlib'
-import { rip, RipExternalCSSResult, RipInlineCSSResult,	Mode, MODES } from './styleripper'
+import { rip } from './styleripper'
 
 const ComponentRegex = /<%(.+)%>/g
 
@@ -61,7 +61,6 @@ type Options = {
 
 // Options specified through the config file
 type Config = {
-	mode: Mode
 	compress: CompressKinds
 }
 
@@ -114,32 +113,15 @@ function build({ prod, configPath }: Options) {
 		}
 	})
 
-	// Use Styleripper to uglify HTML and CSS
 	if (prod) {
-		console.log(`building for production...\nmode: ${cfg.mode}`)
-
-		const ripped = rip(htmlFiles, cssFiles, { mode: cfg.mode })
-		switch (cfg.mode) {
-			case 'externalCSS':
-				const rippedExternal = ripped as RipExternalCSSResult
-				// Simply use the given files
-				htmlFiles = rippedExternal.htmlFiles
-				cssFiles = rippedExternal.cssFiles
-				break
-			case 'inlineCSS':
-				const rippedInline = ripped as RipInlineCSSResult
-				// Take the inline CSS and prepend it as a <style> element
-				htmlFiles = rippedInline.map(html => {
-					return {
-						path: html.path,
-						data: `<style>${html.css}</style>` + html.data,
-					}
-				})
-				// We won't have any CSS files
-				cssFiles = []
-				break
-		}
+		console.log('building for production...')
 	}
+
+	// Use Styleripper to process HTML and CSS
+	// CSS is inlined within each HTML file by default
+	// If minify is true, node names will be minified
+	const minify = prod
+	htmlFiles = rip(htmlFiles, cssFiles, { minify })
 
 	let routes: { [index: string]: string } = {}
 	for (const page of htmlFiles) {
@@ -191,12 +173,6 @@ function build({ prod, configPath }: Options) {
 		writeFile(`./dist/${removeFirstDir(page.path)}`, template, cfg.compress)
 	}
 
-	// Write concatted CSS files
-	const cssBundle = concatFiles(cssFiles)
-	if (cssBundle !== '') {
-		writeFile('./dist/bundle.css', cssBundle, cfg.compress)
-	}
-
 	// Uglify JS, concat to bundle.js, and write to file.
 	if (prod) {
 		for (const f of jsFiles) {
@@ -219,7 +195,6 @@ function build({ prod, configPath }: Options) {
 function readConfig(path: string, prod: boolean): Config {
 	// Defaults for `prod` == true
 	const cfgDefault: Config = {
-		mode: 'externalCSS',
 		compress: 'brotli',
 	}
 
@@ -231,17 +206,11 @@ function readConfig(path: string, prod: boolean): Config {
 		cfg = cfgDefault
 	}
 	// Validate config
-	const invalidKeyVal = (key: string, val: Mode | CompressKinds) => {
+	const invalidKeyVal = (key: string, val: CompressKinds) => {
 		throw new Error(`configuration file invalid: unrecognized value ${val} for key "${key}"`)
-	}
-	if (cfg.mode === undefined) {
-		cfg.mode = cfgDefault.mode
 	}
 	if (cfg.compress === undefined) {
 		cfg.compress = cfgDefault.compress
-	}
-	if (!MODES.includes(cfg.mode)) {
-		invalidKeyVal('mode', cfg.mode)
 	}
 	if (!COMPRESS_KINDS.includes(cfg.compress)) {
 		invalidKeyVal('compress', cfg.compress)
