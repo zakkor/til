@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+const fs = require('fs')
 const til = require('./dist/build')
 const browserSync = require('browser-sync').create()
 
@@ -6,7 +7,15 @@ const PROD = process.env.PROD == undefined ? true : process.env.PROD == 'true'
 
 const build = prod => {
 	const start = process.hrtime()
-	til.build({ prod })
+	try {
+		til.build({
+			configPath: './tilrc.json',
+			prod,
+		})
+	} catch (err) {
+		console.log(err.message)
+		return
+	}
 	const end = process.hrtime(start)
 
 	// If time is under a second, format like "340ms"

@@ -3,7 +3,7 @@ import filepath from 'path'
 import htmlMinifier from 'html-minifier'
 import uglifyJS from 'uglify-js'
 import zlib from 'zlib'
-import { rip, RipExternalCSSResult, RipInlineCSSResult } from './styleripper'
+import { rip, RipExternalCSSResult, RipInlineCSSResult,	Mode, MODES } from './styleripper'
 
 const ComponentRegex = /<%(.+)%>/g
 
@@ -47,17 +47,34 @@ export type File = {
 	data: string
 }
 
-type BuildOptions = {
+// Options specified through env vars or as command-line arguments
+type Options = {
+	configPath: string
 	prod: boolean
 }
+
+// Options specified through the config file
+type Config = {
+	mode: Mode
+	compress: CompressKinds
+}
+
+const COMPRESS_KINDS = ['none', 'gzip', 'brotli'] as const
+type CompressKinds = (typeof COMPRESS_KINDS)[number] // Union type
 
 type WalkFn = (path: string, isDir: boolean) => void
 type WatchFn = (path: string) => void
 
-function build({ prod }: BuildOptions) {
+function build({ prod, configPath }: Options) {
+	const cfg = readConfig(configPath, prod)
+
 	// Read head.html
-	const head = fs.readFileSync('head.html', 'utf8')
-	HtmlTemplate = HtmlTemplate.replace('<%head%>', head)
+	try {
+		const head = fs.readFileSync('head.html', 'utf8')
+		HtmlTemplate = HtmlTemplate.replace('<%head%>', head)
+	} catch {
+		throw new Error('til: "head.html" file must exist')
+	}
 
 	// Gather the files we need to process
 	let files: File[] = collect('./pages', ['.html', '.css', '.js'])
@@ -88,18 +105,28 @@ function build({ prod }: BuildOptions) {
 
 	// Use Styleripper to uglify HTML and CSS
 	if (prod) {
-		const ripped = rip(htmlFiles, cssFiles, { mode: 'InlineCSS' })
-		const rippedExternal = ripped as RipExternalCSSResult
-		if (rippedExternal) {
-			htmlFiles = rippedExternal.htmlFiles
-			cssFiles = rippedExternal.cssFiles
-			console.log('html', htmlFiles)
-			console.log('css', cssFiles)
-		}
-		const rippedInline = ripped as RipInlineCSSResult
-		if (rippedInline) {
-			console.log('inline', rippedInline)
-			return
+		console.log(`doing production build...\nmode: ${cfg.mode}`)
+
+		const ripped = rip(htmlFiles, cssFiles, { mode: cfg.mode })
+		switch (cfg.mode) {
+			case 'externalCSS':
+				const rippedExternal = ripped as RipExternalCSSResult
+				// Simply use the given files
+				htmlFiles = rippedExternal.htmlFiles
+				cssFiles = rippedExternal.cssFiles
+				break
+			case 'inlineCSS':
+				const rippedInline = ripped as RipInlineCSSResult
+				// Take the inline CSS and prepend it as a <style> element
+				htmlFiles = rippedInline.map(html => {
+					return {
+						path: html.path,
+						data: `<style>${html.css}</style>` + html.data,
+					}
+				})
+				// We won't have any CSS files
+				cssFiles = []
+				break
 		}
 	}
 
@@ -152,12 +179,14 @@ function build({ prod }: BuildOptions) {
 		}
 
 		// Write HTML to file
-		writeFile(`./dist/${removeFirstDir(page.path)}`, template, prod)
+		writeFile(`./dist/${removeFirstDir(page.path)}`, template, cfg.compress)
 	}
 
 	// Write concatted CSS files
 	const cssBundle = concatFiles(cssFiles)
-	writeFile('./dist/bundle.css', cssBundle, prod)
+	if (cssBundle !== '') {
+		writeFile('./dist/bundle.css', cssBundle, cfg.compress)
+	}
 
 	// Uglify JS, concat to bundle.js, and write to file.
 	if (prod) {
@@ -166,13 +195,56 @@ function build({ prod }: BuildOptions) {
 		}
 	}
 	const jsBundle = concatFiles(jsFiles)
-	writeFile('./dist/bundle.js', jsBundle, prod)
+	if (jsBundle !== '') {
+		writeFile('./dist/bundle.js', jsBundle, cfg.compress)
+	}
 
 	// Write static files
 	fs.mkdirSync('./dist/static', { recursive: true })
 	for (const img of images) {
 		fs.writeFileSync(`./dist/${img.path}`, img.data)
 	}
+}
+
+// Read and validate config file
+function readConfig(path: string, prod: boolean): Config {
+	// Defaults for `prod` == true
+	const cfgDefault: Config = {
+		mode: 'externalCSS',
+		compress: 'brotli',
+	}
+
+	let cfg: Config
+	try {
+		cfg = JSON.parse(fs.readFileSync(path, 'utf8'))
+	} catch {
+		console.log('no configuration file found, using defaults')
+		cfg = cfgDefault
+	}
+	// Validate config
+	const invalidKeyVal = (key: string, val: Mode | CompressKinds) => {
+		throw new Error(`configuration file invalid: unrecognized value ${val} for key "${key}"`)
+	}
+	if (cfg.mode === undefined) {
+		cfg.mode = cfgDefault.mode
+	}
+	if (cfg.compress === undefined) {
+		cfg.compress = cfgDefault.compress
+	}
+	if (!MODES.includes(cfg.mode)) {
+		invalidKeyVal('mode', cfg.mode)
+	}
+	if (!COMPRESS_KINDS.includes(cfg.compress)) {
+		invalidKeyVal('compress', cfg.compress)
+	}
+
+	// Set dev defaults
+	if (!prod) {
+		// Never compress
+		cfg.compress = 'none'
+	}
+
+	return cfg
 }
 
 function watch(fn: WatchFn) {
@@ -294,9 +366,13 @@ function minifyHTML(data: string): string {
 	})
 }
 
-function writeFile(path: string, data: string, prod: boolean): void {
-	if (prod) {
+function writeFile(path: string, data: string, compress: CompressKinds): void {
+	if (compress === 'brotli') {
 		fs.writeFileSync(`${path}.br`, zlib.brotliCompressSync(data))
+		return
+	}
+	if (compress === 'gzip') {
+		fs.writeFileSync(`${path}.gz`, zlib.gzipSync(data))
 		return
 	}
 

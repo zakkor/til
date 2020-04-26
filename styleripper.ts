@@ -6,7 +6,8 @@ type Options = {
 	mode: Mode
 }
 
-type Mode = 'InlineCSS' | 'ExternalCSS'
+export const MODES = ['inlineCSS', 'externalCSS'] as const
+export type Mode = (typeof MODES)[number] // Union type
 
 type ParsedFile = {
 	file: File
@@ -32,9 +33,9 @@ export type RipExternalCSSResult = {
 
 export function rip(htmlFiles: File[], cssFiles: File[], options: Options): RipInlineCSSResult | RipExternalCSSResult {
 	switch (options.mode) {
-		case 'InlineCSS':
+		case 'inlineCSS':
 			return ripInlineCSS(htmlFiles, cssFiles)
-		case 'ExternalCSS':
+		case 'externalCSS':
 			return ripExternalCSS(htmlFiles, cssFiles)
 	}
 }
@@ -196,7 +197,6 @@ function renameCSSNodes(classnames: string[], rename: { [index: string]: string 
 
 	return cssTree.generate(ast)
 }
-
 
 function parseAndTrackHTMLNodes(nodes: NodeOccurrences, data: string): HTMLNode {
 	const ast = nodeHTMLParser(data, { script: true, style: true })
