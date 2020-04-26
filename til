@@ -24,7 +24,7 @@ const build = prod => {
 		// Otherwise, format like "3.150s"
 		fmt = `${end[0]}${(end[1] / 1e9).toPrecision(3).toString().slice(1)}s`
 	}
-	console.log(`Build finished in ${fmt}`)
+	console.log(`build finished in ${fmt}`)
 }
 
 // Watch

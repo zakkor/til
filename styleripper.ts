@@ -132,6 +132,14 @@ function parseAndTrackCSSNodes(nodes: NodeOccurrences, data: string): CSSNode {
 	// Parse given CSS file into an AST
 	const ast = cssTree.parse(data)
 
+	// Remove comments
+	cssTree.walk(ast, {
+		visit: 'Comment',
+		enter: function (_, item, list) {
+			list.remove(item)
+		},
+	})
+
 	// Walk AST and remove rules in which the only selector is an unused class
 	cssTree.walk(ast, {
 		visit: 'Rule',
