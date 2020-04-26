@@ -20,7 +20,14 @@ let HtmlTemplate = `<!DOCTYPE html>
 </body>
 </html>`
 
-const NavigationTemplate = `var root = document.querySelector('#root')
+const NavigationTemplate = `var r = {}
+var req = new XMLHttpRequest();
+req.addEventListener('load', function(){
+	r = JSON.parse(this.responseText)
+})
+req.open('GET', "/_til/nav"+location.pathname+'routes.json')
+req.send()
+var root = document.querySelector('#root')
 function d() {
 	document.querySelectorAll('a[href]').forEach(function(e) { e.onclick = g })
 }
@@ -39,7 +46,6 @@ window.onpopstate = function() {
 	g(location.pathname)
 }
 d()
-<%routes%>
 r[location.pathname] = root.innerHTML`
 
 export type File = {
@@ -76,6 +82,11 @@ function build({ prod, configPath }: Options) {
 		throw new Error('til: "head.html" file must exist')
 	}
 
+	let navigation = NavigationTemplate
+	if (prod) {
+		navigation = uglifyJS.minify(navigation).code
+	}
+
 	// Gather the files we need to process
 	let files: File[] = collect('./pages', ['.html', '.css', '.js'])
 		.concat(collect('./styles', ['.css']))
@@ -105,7 +116,7 @@ function build({ prod, configPath }: Options) {
 
 	// Use Styleripper to uglify HTML and CSS
 	if (prod) {
-		console.log(`doing production build...\nmode: ${cfg.mode}`)
+		console.log(`building for production...\nmode: ${cfg.mode}`)
 
 		const ripped = rip(htmlFiles, cssFiles, { mode: cfg.mode })
 		switch (cfg.mode) {
@@ -166,10 +177,8 @@ function build({ prod, configPath }: Options) {
 		delete (pageRoutes[pathToRoute(page.path)])
 		const routesJSON = JSON.stringify(pageRoutes)
 
-		let navigation = NavigationTemplate.replace('<%routes%>', `var r = ${routesJSON}`)
-		if (prod) {
-			navigation = uglifyJS.minify(navigation).code
-		}
+		fs.mkdirSync(`./dist/_til/nav/${pathToRoute(page.path)}`, { recursive: true })
+		writeFile(`./dist/_til/nav/${pathToRoute(page.path)}/routes.json`, routesJSON, cfg.compress)
 
 		let template = HtmlTemplate.replace('<%navigation%>', `<script>${navigation}</script>`)
 		template = template.replace('<%root%>', page.data)
