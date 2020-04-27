@@ -1,4 +1,4 @@
-import cssTree, { CssNode as CSSNode } from 'css-tree'
+import cssTree, { CssNode as CSSNode, List as CSSList, ListItem as CSSListItem } from 'css-tree'
 import nodeHTMLParser, { Node as HTMLNode, HTMLElement } from 'node-html-parser'
 import { File } from './build'
 
@@ -12,35 +12,58 @@ type ParsedFile = {
 }
 
 type Occurrences = {
-	[index: string]:
-	NodeOccurrences
+	typenames: NodeOccurrences
+	classnames: NodeOccurrences
+	ids: NodeOccurrences
 }
 
 type NodeOccurrences = {
 	[index: string]: number
 }
 
+type Names = {
+	classnames: string[]
+	ids: string[]
+}
+
 // Mapping of which nodes were renamed from initial name to new name, for each node type.
 // example: rename.classnames['col-lg-6'] // is 'b'
 type Rename = {
-	[index: string]: { [index: string]: string }
+	classnames: { [index: string]: string }
+	ids: { [index: string]: string }
 }
 
 export function rip(htmlFiles: File[], cssFiles: File[], options: Options): File[] {
+	// Store parsed CSS files here, and only clone them when needed to avoid parsing them multiple times
+	const parsedCSS: ParsedFile[] = cssFiles.map(css => {
+		// Parse given CSS file into an AST
+		return { file: css, ast: cssTree.parse(css.data) }
+	})
+
 	return htmlFiles.map(html => {
 		// Determine total node usage for this (HTML; CSS...) pair
 		let nodes: Occurrences = {
-			classnames: {}
+			classnames: {},
+			typenames: {},
+			ids: {},
 		}
 
 		// Parse HTML into an AST, incrementing each occurrence of every renameable node.
 		// Save AST on object to reuse later when renaming each node
 		const ast = parseAndTrackHTMLNodes(nodes, html.data)
 
-		const pcssFiles: ParsedFile[] = cssFiles.map(css => {
+		let clonedCSS: ParsedFile[] = []
+		parsedCSS.forEach(css => {
+			const c = {
+				file: css.file,
+				ast: cssTree.clone(css.ast as CSSNode),
+			}
+			clonedCSS.push(c)
+		})
+
+		clonedCSS.forEach(css => {
 			// Remove unused nodes, then increment each node occurrence
-			const ast = parseAndTrackCSSNodes(nodes, css.data)
-			return { file: css, ast }
+			processCSSNodes(nodes, css.ast as CSSNode)
 		})
 
 		// Calculate the total byte size of each node (n.count * n.name.length) and collect it into a sorted array
@@ -49,11 +72,12 @@ export function rip(htmlFiles: File[], cssFiles: File[], options: Options): File
 		// Start keeping track of how we've renamed nodes for this HTML file
 		let rename: Rename = {
 			classnames: {},
+			ids: {},
 		}
 
 		// CSS nodes are renamed and remembered in `rename`, and the resulting CSS is returned
 		// Each HTML file gets its own bundle of CSS, so we concat the results
-		const inlineCSS: string = pcssFiles.map(pcss => {
+		const inlineCSS: string = clonedCSS.map(pcss => {
 			let data = pcss.file.data
 			if (options.minify) {
 				data = renameCSSNodes(names, rename, (pcss.ast as CSSNode))
@@ -76,41 +100,47 @@ export function rip(htmlFiles: File[], cssFiles: File[], options: Options): File
 	})
 }
 
-function parseAndTrackCSSNodes(nodes: Occurrences, data: string): CSSNode {
-	// Parse given CSS file into an AST
-	const ast = cssTree.parse(data)
-
-	// Remove comments
-	cssTree.walk(ast, {
-		visit: 'Comment',
-		enter: function (_, item, list) {
-			list.remove(item)
-		},
-	})
-
+function processCSSNodes(nodes: Occurrences, ast: CSSNode): void {
 	// Walk AST and remove rules in which the only selector is an unused class
 	cssTree.walk(ast, {
-		visit: 'Rule',
-		enter: function (node, parentItem, parentList) {
-			if (!(node.prelude as cssTree.SelectorList)) {
+		enter: function (node: CSSNode, parentItem: CSSListItem<CSSNode>, parentList: CSSList<CSSNode>) {
+			// Remove comments
+			if (node.type == 'Comment') {
+				parentList.remove(parentItem)
 				return
 			}
 
-			(node.prelude as cssTree.SelectorList).children.each((selector, item, list) => {
-				// Remove any unused class selectors from SelectorList
-				(selector as cssTree.Selector).children.each((s) => {
-					if (s.type !== 'ClassSelector' || list.isEmpty() || cleanCSSIdentifier(s.name) in nodes.classnames) {
-						return
-					}
-
-					list.remove(item)
-				})
-
-				// We've removed all the selectors, need to remove entire rule
-				if (list.isEmpty()) {
-					parentList.remove(parentItem)
+			if (node.type == 'Rule') {
+				const selList = node.prelude as cssTree.SelectorList
+				if (!selList) {
+					return
 				}
-			})
+
+				selList.children.each((selector, item, list) => {
+					// Remove any unused class selectors from SelectorList
+					(selector as cssTree.Selector).children.each((s) => {
+						if (list.isEmpty()) {
+							return
+						}
+						if (s.type !== 'ClassSelector' && s.type !== 'TypeSelector') {
+							return
+						}
+						if (s.type === 'ClassSelector' && cleanCSSIdentifier(s.name) in nodes.classnames) {
+							return
+						}
+						if (s.type === 'TypeSelector' && cleanCSSIdentifier(s.name) in nodes.typenames) {
+							return
+						}
+
+						list.remove(item)
+					})
+
+					// We've removed all the selectors, need to remove entire rule
+					if (list.isEmpty()) {
+						parentList.remove(parentItem)
+					}
+				})
+			}
 		}
 	})
 
@@ -127,19 +157,17 @@ function parseAndTrackCSSNodes(nodes: Occurrences, data: string): CSSNode {
 			nodes.classnames[name]++
 		}
 	})
-
-	return ast
 }
 
-function renameCSSNodes(names: { [index: string]: string[] }, rename: Rename, ast: CSSNode): string {
+function renameCSSNodes(names: Names, rename: Rename, ast: CSSNode): string {
 	// For each selector in sorted order, walk through AST and rename each occurrence
 	let i = 0
-	for (const classname of names.classnames) {
+	for (const name of names.classnames) {
 		cssTree.walk(ast, {
 			visit: 'ClassSelector',
 			enter: function (node) {
-				const name = cleanCSSIdentifier(node.name)
-				if (classname !== name) {
+				const classname = cleanCSSIdentifier(node.name)
+				if (name !== classname) {
 					return
 				}
 
@@ -163,20 +191,31 @@ function parseAndTrackHTMLNodes(nodes: Occurrences, data: string): HTMLNode {
 function parseHTMLNodeChildren(nodes: Occurrences, node: HTMLNode): void {
 	const element = node as HTMLElement
 	if (element) {
-		// Count each className occurrence
 		if (element.classNames) {
+			// Count each className occurrence
 			for (const className of element.classNames) {
 				if (className in nodes.classnames) {
 					nodes.classnames[className]++
 					continue
 				}
+
 				nodes.classnames[className] = 1
+			}
+		}
+
+		// Count each tagName occurrence
+		const tagname = element.tagName
+		if (tagname) {
+			if (tagname in nodes.typenames) {
+				nodes.typenames[tagname]++
+			} else {
+				nodes.typenames[tagname] = 1
 			}
 		}
 	}
 
-	for (const child of node.childNodes) {
-		parseHTMLNodeChildren(nodes, child)
+	for (const c of node.childNodes) {
+		parseHTMLNodeChildren(nodes, c)
 	}
 }
 
@@ -197,6 +236,8 @@ function renameHTMLNodes(rename: Rename, node: HTMLNode) {
 				element.setAttribute('class', replace.join(' '))
 			}
 		}
+
+		// TODO: rename IDs
 	}
 
 	for (const child of node.childNodes) {
@@ -204,16 +245,26 @@ function renameHTMLNodes(rename: Rename, node: HTMLNode) {
 	}
 }
 
-function sortedNames(nodes: Occurrences): { [index: string]: string[] } {
-	let res: { [index: string]: string[] } = {}
+function sortedNames(nodes: Occurrences): Names {
+	let res: Names = {
+		classnames: [],
+		ids: [],
+	}
 
 	for (const [key, val] of Object.entries(nodes)) {
-		res[key] = Object.entries(val)
+		const sorted = Object.entries(val)
 			.map(([name, count]) => {
 				return { name, total: name.length * count }
 			})
 			.sort((a, b) => b.total - a.total)
 			.map(t => t.name)
+
+		if (key === 'classnames') {
+			res.classnames = sorted
+		}
+		if (key === 'ids') {
+			res.ids = sorted
+		}
 	}
 
 	return res
@@ -248,3 +299,19 @@ function generateShortestName(idx: number): string {
 
 	return ascii[idx]
 }
+
+// function time(s: string): () => void {
+// 	const start = process.hrtime()
+
+// 	return function() {
+// 		const end = process.hrtime(start)
+
+// 		// If time is under a second, format like "340ms"
+// 		let fmt = `${(end[1] / 1e6).toPrecision(3)}ms`
+// 		if (end[0] > 0) {
+// 			// Otherwise, format like "3.150s"
+// 			fmt = `${end[0]}${(end[1] / 1e9).toPrecision(3).toString().slice(1)}s`
+// 		}
+// 		console.log(`${s} finished in ${fmt}`)
+// 	}
+// }
