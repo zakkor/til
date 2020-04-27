@@ -5,7 +5,9 @@
 		"til": "./til"
 	},
 	"license": "MIT",
-	"devDependencies": {},
+	"devDependencies": {
+		"typescript": "^3.8.3"
+	},
 	"dependencies": {
 		"@types/css-tree": "^1.0.3",
 		"@types/html-minifier": "^3.5.3",

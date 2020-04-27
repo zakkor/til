@@ -23,7 +23,10 @@ let HtmlTemplate = `<!DOCTYPE html>
 const NavigationTemplate = `var r = {}
 var req = new XMLHttpRequest();
 req.addEventListener('load', function(){
-	r = JSON.parse(this.responseText)
+	var nr = JSON.parse(this.responseText)
+	for (var key in nr) {
+		r[key] = nr[key]
+	}
 })
 req.open('GET', "/_til/nav"+location.pathname+'routes.json')
 req.send()
@@ -35,6 +38,7 @@ function g(e) {
 	var t = e.target.closest('a[href]')
 	var p = typeof e == 'object' ? t.getAttribute('href') : e
 	if (!(p in r)) {
+		console.error('route does not exist:', p)
 		return false
 	}
 	root.innerHTML = r[p]
