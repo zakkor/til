@@ -11,14 +11,27 @@ type ParsedFile = {
 	ast: CSSNode | HTMLNode
 }
 
+type Occurrences = {
+	[index: string]:
+	NodeOccurrences
+}
+
 type NodeOccurrences = {
 	[index: string]: number
+}
+
+// Mapping of which nodes were renamed from initial name to new name, for each node type.
+// example: rename.classnames['col-lg-6'] // is 'b'
+type Rename = {
+	[index: string]: { [index: string]: string }
 }
 
 export function rip(htmlFiles: File[], cssFiles: File[], options: Options): File[] {
 	return htmlFiles.map(html => {
 		// Determine total node usage for this (HTML; CSS...) pair
-		let nodes: NodeOccurrences = {}
+		let nodes: Occurrences = {
+			classnames: {}
+		}
 
 		// Parse HTML into an AST, incrementing each occurrence of every renameable node.
 		// Save AST on object to reuse later when renaming each node
@@ -34,7 +47,9 @@ export function rip(htmlFiles: File[], cssFiles: File[], options: Options): File
 		let names = sortedNames(nodes)
 
 		// Start keeping track of how we've renamed nodes for this HTML file
-		let rename: { [index: string]: string } = {}
+		let rename: Rename = {
+			classnames: {},
+		}
 
 		// CSS nodes are renamed and remembered in `rename`, and the resulting CSS is returned
 		// Each HTML file gets its own bundle of CSS, so we concat the results
@@ -61,7 +76,7 @@ export function rip(htmlFiles: File[], cssFiles: File[], options: Options): File
 	})
 }
 
-function parseAndTrackCSSNodes(nodes: NodeOccurrences, data: string): CSSNode {
+function parseAndTrackCSSNodes(nodes: Occurrences, data: string): CSSNode {
 	// Parse given CSS file into an AST
 	const ast = cssTree.parse(data)
 
@@ -84,7 +99,7 @@ function parseAndTrackCSSNodes(nodes: NodeOccurrences, data: string): CSSNode {
 			(node.prelude as cssTree.SelectorList).children.each((selector, item, list) => {
 				// Remove any unused class selectors from SelectorList
 				(selector as cssTree.Selector).children.each((s) => {
-					if (s.type !== 'ClassSelector' || list.isEmpty() || cleanCSSIdentifier(s.name) in nodes) {
+					if (s.type !== 'ClassSelector' || list.isEmpty() || cleanCSSIdentifier(s.name) in nodes.classnames) {
 						return
 					}
 
@@ -105,21 +120,21 @@ function parseAndTrackCSSNodes(nodes: NodeOccurrences, data: string): CSSNode {
 		visit: 'ClassSelector',
 		enter: function (node) {
 			const name = cleanCSSIdentifier(node.name)
-			if (!(name in nodes)) {
+			if (!(name in nodes.classnames)) {
 				throw new Error('encountered unused class selector when it should have been removed')
 			}
 
-			nodes[name]++
+			nodes.classnames[name]++
 		}
 	})
 
 	return ast
 }
 
-function renameCSSNodes(classnames: string[], rename: { [index: string]: string }, ast: CSSNode): string {
+function renameCSSNodes(names: { [index: string]: string[] }, rename: Rename, ast: CSSNode): string {
 	// For each selector in sorted order, walk through AST and rename each occurrence
 	let i = 0
-	for (const classname of classnames) {
+	for (const classname of names.classnames) {
 		cssTree.walk(ast, {
 			visit: 'ClassSelector',
 			enter: function (node) {
@@ -129,7 +144,7 @@ function renameCSSNodes(classnames: string[], rename: { [index: string]: string 
 				}
 
 				const newname = generateShortestName(i)
-				rename[name] = newname
+				rename.classnames[name] = newname
 				node.name = newname
 			}
 		})
@@ -139,23 +154,23 @@ function renameCSSNodes(classnames: string[], rename: { [index: string]: string 
 	return cssTree.generate(ast)
 }
 
-function parseAndTrackHTMLNodes(nodes: NodeOccurrences, data: string): HTMLNode {
+function parseAndTrackHTMLNodes(nodes: Occurrences, data: string): HTMLNode {
 	const ast = nodeHTMLParser(data, { script: true, style: true })
 	parseHTMLNodeChildren(nodes, ast)
 	return ast
 }
 
-function parseHTMLNodeChildren(nodes: NodeOccurrences, node: HTMLNode): void {
+function parseHTMLNodeChildren(nodes: Occurrences, node: HTMLNode): void {
 	const element = node as HTMLElement
 	if (element) {
 		// Count each className occurrence
 		if (element.classNames) {
 			for (const className of element.classNames) {
-				if (className in nodes) {
-					nodes[className]++
+				if (className in nodes.classnames) {
+					nodes.classnames[className]++
 					continue
 				}
-				nodes[className] = 1
+				nodes.classnames[className] = 1
 			}
 		}
 	}
@@ -165,14 +180,14 @@ function parseHTMLNodeChildren(nodes: NodeOccurrences, node: HTMLNode): void {
 	}
 }
 
-function renameHTMLNodes(rename: { [index: string]: string }, node: HTMLNode) {
+function renameHTMLNodes(rename: Rename, node: HTMLNode) {
 	const element = node as HTMLElement
 	if (element) {
 		// Rename classes
 		if (element.classNames) {
 			const replace = element.classNames.map(c => {
-				if (c in rename) {
-					return rename[c]
+				if (c in rename.classnames) {
+					return rename.classnames[c]
 				}
 
 				return c
@@ -189,13 +204,19 @@ function renameHTMLNodes(rename: { [index: string]: string }, node: HTMLNode) {
 	}
 }
 
-function sortedNames(nodes: NodeOccurrences): string[] {
-	return Object.entries(nodes)
-		.map(([name, count]) => {
-			return { name, total: name.length * count }
-		})
-		.sort((a, b) => b.total - a.total)
-		.map(t => t.name)
+function sortedNames(nodes: Occurrences): { [index: string]: string[] } {
+	let res: { [index: string]: string[] } = {}
+
+	for (const [key, val] of Object.entries(nodes)) {
+		res[key] = Object.entries(val)
+			.map(([name, count]) => {
+				return { name, total: name.length * count }
+			})
+			.sort((a, b) => b.total - a.total)
+			.map(t => t.name)
+	}
+
+	return res
 }
 
 function cleanCSSIdentifier(n: string): string {
