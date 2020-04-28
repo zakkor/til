@@ -2,10 +2,11 @@
 	"name": "@til-js/til",
 	"version": "0.0.1",
 	"bin": {
-		"til": "./til"
+		"til": "./dist/til.js"
 	},
 	"license": "MIT",
 	"devDependencies": {
+		"@types/browser-sync": "^2.26.1",
 		"typescript": "^3.8.3"
 	},
 	"dependencies": {

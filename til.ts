@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-const fs = require('fs')
-const til = require('./dist/build')
-const browserSync = require('browser-sync').create()
+import til from './build'
+import browserSync from 'browser-sync'
+const bs = browserSync.create()
 
 const PROD = process.env.PROD == undefined ? true : process.env.PROD == 'true'
 
-const build = prod => {
+const build = (prod: boolean) => {
 	const start = process.hrtime()
 	til.build({
 		configPath: './tilrc.json',
@@ -24,7 +24,7 @@ const build = prod => {
 
 // Watch
 if (process.argv.includes('dev')) {
-	browserSync.init({
+	bs.init({
 		server: './dist',
 		ui: false,
 		notify: false,
@@ -34,13 +34,13 @@ if (process.argv.includes('dev')) {
 
 	// Initial build
 	build(false)
-	browserSync.reload(['*.html'])
+	bs.reload(['*.html'])
 
 	til.watch(file => {
 		// Development build
 		build(false)
 		const reload = file.endsWith('.css') ? ['*.css'] : ['*.html', '*.css']
-		browserSync.reload(...reload)
+		bs.reload(reload)
 	})
 } else {
 	build(PROD)

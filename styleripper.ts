@@ -40,7 +40,7 @@ export function rip(htmlFiles: File[], cssFiles: File[], options: Options): File
 		return { file: css, ast: cssTree.parse(css.data) }
 	})
 
-	return htmlFiles.map(html => {
+	const ripped = htmlFiles.map(html => {
 		// Determine total node usage for this (HTML; CSS...) pair
 		let nodes: Occurrences = {
 			classnames: {},
@@ -98,6 +98,7 @@ export function rip(htmlFiles: File[], cssFiles: File[], options: Options): File
 			data: `<style>${inlineCSS}</style>` + ast.toString(),
 		}
 	})
+	return ripped
 }
 
 function processCSSNodes(nodes: Occurrences, ast: CSSNode): void {
@@ -122,10 +123,13 @@ function processCSSNodes(nodes: Occurrences, ast: CSSNode): void {
 						if (list.isEmpty()) {
 							return
 						}
-						if (s.type !== 'ClassSelector' && s.type !== 'TypeSelector') {
+						if (s.type !== 'ClassSelector' && s.type !== 'TypeSelector' && s.type !== 'IdSelector') {
 							return
 						}
 						if (s.type === 'ClassSelector' && cleanCSSIdentifier(s.name) in nodes.classnames) {
+							return
+						}
+						if (s.type === 'IdSelector' && cleanCSSIdentifier(s.name) in nodes.ids) {
 							return
 						}
 						if (s.type === 'TypeSelector' && cleanCSSIdentifier(s.name) in nodes.typenames) {
@@ -157,9 +161,21 @@ function processCSSNodes(nodes: Occurrences, ast: CSSNode): void {
 			nodes.classnames[name]++
 		}
 	})
+	cssTree.walk(ast, {
+		visit: 'IdSelector',
+		enter: function (node) {
+			const name = cleanCSSIdentifier(node.name)
+			if (!(name in nodes.ids)) {
+				throw new Error('encountered unused id selector when it should have been removed')
+			}
+
+			nodes.ids[name]++
+		}
+	})
 }
 
 function renameCSSNodes(names: Names, rename: Rename, ast: CSSNode): string {
+	// TODO: refactor
 	// For each selector in sorted order, walk through AST and rename each occurrence
 	let i = 0
 	for (const name of names.classnames) {
@@ -173,6 +189,25 @@ function renameCSSNodes(names: Names, rename: Rename, ast: CSSNode): string {
 
 				const newname = generateShortestName(i)
 				rename.classnames[name] = newname
+				node.name = newname
+			}
+		})
+		i++
+	}
+
+	// TODO: refactor
+	i = 0
+	for (const name of names.ids) {
+		cssTree.walk(ast, {
+			visit: 'IdSelector',
+			enter: function (node) {
+				const id = cleanCSSIdentifier(node.name)
+				if (name !== id) {
+					return
+				}
+
+				const newname = generateShortestName(i)
+				rename.ids[name] = newname
 				node.name = newname
 			}
 		})
@@ -200,6 +235,15 @@ function parseHTMLNodeChildren(nodes: Occurrences, node: HTMLNode): void {
 				}
 
 				nodes.classnames[className] = 1
+			}
+		}
+
+		const id = element.id
+		if (id) {
+			if (id in nodes.ids) {
+				nodes.ids[id]++
+			} else {
+				nodes.ids[id] = 1
 			}
 		}
 
@@ -237,7 +281,13 @@ function renameHTMLNodes(rename: Rename, node: HTMLNode) {
 			}
 		}
 
-		// TODO: rename IDs
+		if (element.id) {
+			let r = element.id
+			if (element.id in rename.ids) {
+				r = rename.ids[element.id]
+			}
+			element.setAttribute('id', r)
+		}
 	}
 
 	for (const child of node.childNodes) {
@@ -300,18 +350,19 @@ function generateShortestName(idx: number): string {
 	return ascii[idx]
 }
 
-// function time(s: string): () => void {
-// 	const start = process.hrtime()
+function time(s: string): () => void {
+	const start = process.hrtime()
 
-// 	return function() {
-// 		const end = process.hrtime(start)
+	return function () {
+		const end = process.hrtime(start)
 
-// 		// If time is under a second, format like "340ms"
-// 		let fmt = `${(end[1] / 1e6).toPrecision(3)}ms`
-// 		if (end[0] > 0) {
-// 			// Otherwise, format like "3.150s"
-// 			fmt = `${end[0]}${(end[1] / 1e9).toPrecision(3).toString().slice(1)}s`
-// 		}
-// 		console.log(`${s} finished in ${fmt}`)
-// 	}
-// }
+		// If time is under a second, format like "340ms"
+		let fmt = `${(end[1] / 1e6).toPrecision(3)}ms`
+		if (end[0] > 0) {
+			// Otherwise, format like "3.150s"
+			fmt = `${end[0]}${(end[1] / 1e9).toPrecision(3).toString().slice(1)}s`
+		}
+		console.log(`${s} finished in ${fmt}`)
+	}
+}
+time

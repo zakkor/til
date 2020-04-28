@@ -250,7 +250,7 @@ function watch(fn: WatchFn) {
 	}
 }
 
-module.exports = {
+export default {
 	build,
 	watch,
 }
