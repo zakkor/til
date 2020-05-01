@@ -7,19 +7,6 @@ import { rip } from './styleripper'
 
 const ComponentRegex = /<%(.+)%>/g
 
-let HtmlTemplate = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<%head%>
-</head>
-<body>
-<div id="root">
-<%root%>
-</div>
-<%navigation%>
-</body>
-</html>`
-
 const NavigationTemplate = `var r = {}
 var req = new XMLHttpRequest();
 req.addEventListener('load', function(){
@@ -30,7 +17,7 @@ req.addEventListener('load', function(){
 })
 req.open('GET', "/_til/nav"+location.pathname+'routes.json')
 req.send()
-var root = document.querySelector('#root')
+var html = document.querySelector('html')
 function d() {
 	document.querySelectorAll('a[href]').forEach(function(e) { e.onclick = g })
 }
@@ -41,7 +28,7 @@ function g(e) {
 		console.error('route does not exist:', p)
 		return false
 	}
-	root.innerHTML = r[p]
+	html.innerHTML = r[p]
 	history.pushState({}, '', p)
 	d()
 	return false
@@ -50,7 +37,7 @@ window.onpopstate = function() {
 	g(location.pathname)
 }
 d()
-r[location.pathname] = root.innerHTML`
+r[location.pathname] = html.innerHTML`
 
 export type File = {
 	path: string
@@ -74,37 +61,8 @@ type CompressKinds = (typeof COMPRESS_KINDS)[number] // Union type
 type WalkFn = (path: string, isDir: boolean) => void
 type WatchFn = (path: string) => void
 
-function build({ prod, configPath }: Options) {
-	const cfg = readConfig(configPath, prod)
-
-	// Read head.html
-	try {
-		const head = fs.readFileSync('head.html', 'utf8')
-		HtmlTemplate = HtmlTemplate.replace('<%head%>', head)
-	} catch {
-		throw new Error('til: "head.html" file must exist')
-	}
-
-	let navigation = NavigationTemplate
-	if (prod) {
-		navigation = uglifyJS.minify(navigation).code
-	}
-
-	// Gather the files we need to process
-	let files: File[] = collect('./pages', ['.html', '.css', '.js'])
-		.concat(collect('./styles', ['.css']))
-		.concat(collect('./static', ['.svg']))
-		.map(f => { return { path: f, data: fs.readFileSync(f, 'utf8') } })
-
-	const keep = (ext: string) => {
-		return (f: File) => f.path.endsWith(ext)
-	}
-	let htmlFiles = files.filter(keep('.html'))
-	let cssFiles = files.filter(keep('.css'))
-	let jsFiles = files.filter(keep('.js'))
-	let images = files.filter(keep('.svg'))
-
-	htmlFiles.forEach(page => {
+function processComponents(pages: File[]): void {
+	pages.forEach(page => {
 		// Match each component name, specified like "<%component%>"
 		let m: RegExpExecArray | null
 		while (m = ComponentRegex.exec(page.data)) {
@@ -116,19 +74,28 @@ function build({ prod, configPath }: Options) {
 			page.data = page.data.replace(re, compData)
 		}
 	})
+}
 
-	if (prod) {
-		console.log('building for production...')
-	}
+function build({ prod, configPath }: Options) {
+	const cfg = readConfig(configPath, prod)
+
+	let pages = collectFiles(['./pages'], ['.html'])
+	let styles = collectFiles(['./pages', './styles'], ['.css'])
+	let scripts = collectFiles(['./pages'], ['.js'])
+
+	// Go through each page and instantiate components
+	processComponents(pages)
 
 	// Use Styleripper to process HTML and CSS
 	// CSS is inlined within each HTML file by default
 	// If minify is true, node names will be minified
-	const minify = prod
-	htmlFiles = rip(htmlFiles, cssFiles, { minify })
+	pages = rip(pages, styles, {
+		// Minify in production
+		minify: prod,
+	})
 
 	let routes: { [index: string]: string } = {}
-	for (const page of htmlFiles) {
+	for (const page of pages) {
 		let data = page.data
 		if (prod) {
 			data = minifyHTML(page.data)
@@ -136,16 +103,13 @@ function build({ prod, configPath }: Options) {
 		routes[pathToRoute(page.path)] = data
 	}
 
-	// Ignore error if already exists
 	fs.mkdirSync('./dist', { recursive: true })
-
-	// Remove "dist" dir
+	// Remove each item in "dist" dir
 	walkToplevel('./dist', (path, isDir) => {
 		if (isDir) {
 			fs.rmdirSync(path, { recursive: true })
 			return
 		}
-
 		fs.unlinkSync(path)
 	})
 
@@ -156,43 +120,46 @@ function build({ prod, configPath }: Options) {
 		}
 	})
 
-	for (const page of htmlFiles) {
-		// Append routes except self to navigation template, and close the script tag
-		let pageRoutes = Object.assign({}, routes)
+	// TODO: move to processNavigation
+	let navigation = NavigationTemplate
+	if (prod) {
+		navigation = uglifyJS.minify(navigation).code
+	}
+
+	for (const page of pages) {
 		// Delete this page from routes, we can add the page HTML to the routes after the page loads
+		let pageRoutes = Object.assign({}, routes)
 		delete (pageRoutes[pathToRoute(page.path)])
 		const routesJSON = JSON.stringify(pageRoutes)
 
 		fs.mkdirSync(`./dist/_til/nav/${pathToRoute(page.path)}`, { recursive: true })
 		writeFile(`./dist/_til/nav/${pathToRoute(page.path)}/routes.json`, routesJSON, cfg.compress)
 
-		let template = HtmlTemplate.replace('<%navigation%>', `<script>${navigation}</script>`)
-		template = template.replace('<%root%>', page.data)
-
+		page.data = page.data.replace('</body>', `</body><script>${navigation}</script>`)
 		if (prod) {
-			template = minifyHTML(template)
+			page.data = minifyHTML(page.data)
 		}
 
 		// Write HTML to file
-		writeFile(`./dist/${removeFirstDir(page.path)}`, template, cfg.compress)
+		writeFile(`./dist/${removeFirstDir(page.path)}`, page.data, cfg.compress)
 	}
 
 	// Uglify JS, concat to bundle.js, and write to file.
 	if (prod) {
-		for (const f of jsFiles) {
+		for (const f of scripts) {
 			f.data = uglifyJS.minify(f.data).code
 		}
 	}
-	const jsBundle = concatFiles(jsFiles)
+	const jsBundle = concatFiles(scripts)
 	if (jsBundle !== '') {
 		writeFile('./dist/bundle.js', jsBundle, cfg.compress)
 	}
 
-	// Write static files
-	fs.mkdirSync('./dist/static', { recursive: true })
-	for (const img of images) {
-		fs.writeFileSync(`./dist/${img.path}`, img.data)
-	}
+	// // Write static files
+	// fs.mkdirSync('./dist/static', { recursive: true })
+	// for (const img of images) {
+	// 	fs.writeFileSync(`./dist/${img.path}`, img.data)
+	// }
 }
 
 // Read and validate config file
@@ -244,7 +211,7 @@ function watch(fn: WatchFn) {
 		}
 	}
 
-	const paths = collect('./', ['.html', '.css', '.js'], ['node_modules', 'dist'])
+	const paths = collect(['./'], ['.html', '.css', '.js'], ['node_modules', 'dist'])
 	for (const p of paths) {
 		fs.watch(p, {}, watcher(p))
 	}
@@ -302,39 +269,45 @@ function walkToplevel(path: string, fn: WalkFn): void {
 	dir.closeSync()
 }
 
-function collect(path: string, extensions: string[], exclude: string[] = []): string[] {
+function collectFiles(paths: string[], extensions: string[]): File[] {
+	return collect(paths, extensions).map(f => { return { path: f, data: fs.readFileSync(f, 'utf8') } })
+}
+
+function collect(paths: string[], extensions: string[], exclude: string[] = []): string[] {
 	let files: string[] = []
-	walk(path, exclude, (path: string, isDir: boolean) => {
-		if (isDir) {
-			return
-		}
-
-		let ok = false
-		for (const ext of extensions) {
-			if (path.endsWith(ext)) {
-				ok = true
-				break
+	for (const path of paths) {
+		walk(path, exclude, (path: string, isDir: boolean) => {
+			if (isDir) {
+				return
 			}
-		}
-		if (!ok) {
-			return
-		}
-
-		if (exclude && exclude.length > 0) {
-			let ok = true
-			for (const exc of exclude) {
-				if (path.endsWith(exc)) {
-					ok = false
+	
+			let ok = false
+			for (const ext of extensions) {
+				if (path.endsWith(ext)) {
+					ok = true
 					break
 				}
 			}
 			if (!ok) {
 				return
 			}
-		}
-
-		files.push(path)
-	})
+	
+			if (exclude && exclude.length > 0) {
+				let ok = true
+				for (const exc of exclude) {
+					if (path.endsWith(exc)) {
+						ok = false
+						break
+					}
+				}
+				if (!ok) {
+					return
+				}
+			}
+	
+			files.push(path)
+		})
+	}
 
 	return files
 }

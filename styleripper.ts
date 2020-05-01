@@ -93,9 +93,12 @@ export function rip(htmlFiles: File[], cssFiles: File[], options: Options): File
 			renameHTMLNodes(rename, ast)
 		}
 
+		let data = ast.toString()
+		// Insert right where <body> starts
+		data = data.replace('<body>', `<body><style>${inlineCSS}</style>`)
 		return {
 			path: html.path,
-			data: `<style>${inlineCSS}</style>` + ast.toString(),
+			data,
 		}
 	})
 	return ripped
