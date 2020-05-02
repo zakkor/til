@@ -1,18 +1,22 @@
 {
 	"name": "@til-js/til",
 	"version": "0.0.1",
+	"scripts": {
+		"test": "jest"
+	},
 	"bin": {
 		"til": "./dist/til.js"
 	},
 	"license": "MIT",
 	"devDependencies": {
 		"@types/browser-sync": "^2.26.1",
-		"typescript": "^3.8.3"
-	},
-	"dependencies": {
 		"@types/css-tree": "^1.0.3",
 		"@types/html-minifier": "^3.5.3",
 		"@types/node": "^13.13.2",
+		"jest": "^25.5.4",
+		"typescript": "^3.8.3"
+	},
+	"dependencies": {
 		"browser-sync": "^2.26.7",
 		"css-tree": "^1.0.0-alpha.39",
 		"html-minifier": "^4.0.0",

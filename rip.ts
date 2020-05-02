@@ -78,9 +78,11 @@ export function rip(htmlFiles: File[], cssFiles: File[], options: Options): File
 		// CSS nodes are renamed and remembered in `rename`, and the resulting CSS is returned
 		// Each HTML file gets its own bundle of CSS, so we concat the results
 		const inlineCSS: string = clonedCSS.map(pcss => {
-			let data = pcss.file.data
+			let data = undefined
 			if (options.minify) {
 				data = renameCSSNodes(names, rename, (pcss.ast as CSSNode))
+			} else {
+				data = cssTree.generate(pcss.ast as CSSNode)
 			}
 			return {
 				path: pcss.file.path,
