@@ -3,7 +3,7 @@ import filepath from 'path'
 import htmlMinifier from 'html-minifier'
 import uglifyJS from 'uglify-js'
 
-import { watch, File, collectFiles, writeFile, walk, walktop } from './fs'
+import { watch, File, collectFiles, writeFile, walktop } from './fs'
 import { readConfig, CompressKinds } from './config'
 import { rip } from './rip'
 
@@ -26,9 +26,24 @@ function build({ prod, configPath }: Options) {
 	let styles = collectFiles(['./pages', './styles'], ['.css'])
 	let scripts = collectFiles(['./pages'], ['.js'])
 
-	processComponents(pages)
-	processPages(pages, styles, prod, cfg.compress)
-	processScripts(scripts, prod, cfg.compress)
+	task('\ninstantiating components', () => processComponents(pages))
+	task('processing pages', () => processPages(pages, styles, prod, cfg.compress))
+	task('processing scripts', () => processScripts(scripts, prod, cfg.compress))
+}
+
+export function task(name: string, fn: () => void) {
+	process.stdout.write(name+'... ')
+	const start = process.hrtime()
+	fn()
+	const end = process.hrtime(start)
+
+	// If time is under a second, format like "340ms"
+	let fmt = `${(end[1] / 1e6).toPrecision(3)}ms`
+	if (end[0] > 0) {
+		// Otherwise, format like "3.150s"
+		fmt = `${end[0]}${(end[1] / 1e9).toPrecision(3).toString().slice(1)}s`
+	}
+	console.log(`OK ${fmt}`)
 }
 
 // Go through each component and substitute in pages
