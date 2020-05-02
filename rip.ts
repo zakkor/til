@@ -1,6 +1,6 @@
 import cssTree, { CssNode as CSSNode, List as CSSList, ListItem as CSSListItem } from 'css-tree'
 import nodeHTMLParser, { Node as HTMLNode, HTMLElement } from 'node-html-parser'
-import { File } from './build'
+import { File } from './fs'
 
 type Options = {
 	minify: boolean

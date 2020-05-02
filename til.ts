@@ -5,7 +5,7 @@ const bs = browserSync.create()
 
 const PROD = process.env.PROD == undefined ? true : process.env.PROD == 'true'
 
-const build = (prod: boolean) => {
+const buildTiming = (prod: boolean) => {
 	const start = process.hrtime()
 	til.build({
 		configPath: './tilrc.json',
@@ -33,15 +33,15 @@ if (process.argv.includes('dev')) {
 	})
 
 	// Initial build
-	build(false)
+	buildTiming(false)
 	bs.reload(['*.html'])
 
 	til.watch(file => {
 		// Development build
-		build(false)
+		buildTiming(false)
 		const reload = file.endsWith('.css') ? ['*.css'] : ['*.html', '*.css']
 		bs.reload(reload)
 	})
 } else {
-	build(PROD)
+	buildTiming(PROD)
 }
