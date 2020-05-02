@@ -106,7 +106,7 @@ function prepareNavigation(pages: File[], prod: boolean, compress: CompressKinds
 function prepareRoutes(pages: File[], prod: boolean): Routes {
 	let routes: Routes = {}
 	for (const page of pages) {
-		// TODO: maybe html minification should be done in a step before this one
+		// TODO: html minification should be done in a step before this one
 		// instead of as a side effect of preparing routes
 		if (prod) {
 			page.data = htmlMinify(page.data)
