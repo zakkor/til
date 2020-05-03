@@ -3,7 +3,10 @@ import nodeHTMLParser, { Node as HTMLNode, HTMLElement } from 'node-html-parser'
 import { File } from './fs'
 
 type Options = {
-	minify: boolean
+	// "uglify" specifies if nodes should be renamed (class and id names)
+	uglify: boolean
+	// "removeUnusedCSS" specifies if unused CSS rules should be removed
+	removeUnusedCSS: boolean
 }
 
 type ParsedFile = {
@@ -52,6 +55,7 @@ export function rip(htmlFiles: File[], cssFiles: File[], options: Options): File
 		// Save AST on object to reuse later when renaming each node
 		const ast = parseAndTrackHTMLNodes(nodes, html.data)
 
+		// TODO: refactor
 		let clonedCSS: ParsedFile[] = []
 		parsedCSS.forEach(css => {
 			const c = {
@@ -62,8 +66,15 @@ export function rip(htmlFiles: File[], cssFiles: File[], options: Options): File
 		})
 
 		clonedCSS.forEach(css => {
-			// Remove unused nodes, then increment each node occurrence
-			processCSSNodes(nodes, css.ast as CSSNode)
+			const ast = css.ast as CSSNode
+
+			// Remove unused nodes
+			if (options.removeUnusedCSS) {
+				removeUnusedCSS(ast, nodes)
+			}
+
+			// Increment each node occurrence
+			processCSSNodes(ast, nodes)
 		})
 
 		// Calculate the total byte size of each node (n.count * n.name.length) and collect it into a sorted array
@@ -79,7 +90,7 @@ export function rip(htmlFiles: File[], cssFiles: File[], options: Options): File
 		// Each HTML file gets its own bundle of CSS, so we concat the results
 		const inlineCSS: string = clonedCSS.map(pcss => {
 			let data = undefined
-			if (options.minify) {
+			if (options.uglify) {
 				data = renameCSSNodes(names, rename, (pcss.ast as CSSNode))
 			} else {
 				data = cssTree.generate(pcss.ast as CSSNode)
@@ -90,7 +101,7 @@ export function rip(htmlFiles: File[], cssFiles: File[], options: Options): File
 			}
 		}).reduce((acc, css) => css.data + acc, '')
 
-		if (options.minify) {
+		if (options.uglify) {
 			// Rewrite all nodes according to `rename`
 			renameHTMLNodes(rename, ast)
 		}
@@ -106,7 +117,36 @@ export function rip(htmlFiles: File[], cssFiles: File[], options: Options): File
 	return ripped
 }
 
-function processCSSNodes(nodes: Occurrences, ast: CSSNode): void {
+function processCSSNodes(ast: CSSNode, nodes: Occurrences): void {
+	// Walk through all class selectors and increment their count
+	// (Only if they are used, as we should have already removed all unused classnames, if necessary)
+	cssTree.walk(ast, {
+		visit: 'ClassSelector',
+		enter: function (node) {
+			const name = cleanCSSIdentifier(node.name)
+			// Only count nodes that are actually present in the HTML
+			if (!(name in nodes.classnames)) {
+				return
+			}
+
+			nodes.classnames[name]++
+		}
+	})
+	cssTree.walk(ast, {
+		visit: 'IdSelector',
+		enter: function (node) {
+			const name = cleanCSSIdentifier(node.name)
+			// Only count nodes that are actually present in the HTML
+			if (!(name in nodes.ids)) {
+				return
+			}
+
+			nodes.ids[name]++
+		}
+	})
+}
+
+function removeUnusedCSS(ast: CSSNode, nodes: Occurrences) {
 	// Walk AST and remove rules in which the only selector is an unused class
 	cssTree.walk(ast, {
 		enter: function (node: CSSNode, parentItem: CSSListItem<CSSNode>, parentList: CSSList<CSSNode>) {
@@ -150,31 +190,6 @@ function processCSSNodes(nodes: Occurrences, ast: CSSNode): void {
 					}
 				})
 			}
-		}
-	})
-
-	// Walk through all class selectors and increment their count
-	// (Only if they are used, as we have already removed all unused classnames)
-	cssTree.walk(ast, {
-		visit: 'ClassSelector',
-		enter: function (node) {
-			const name = cleanCSSIdentifier(node.name)
-			if (!(name in nodes.classnames)) {
-				throw new Error('encountered unused class selector when it should have been removed')
-			}
-
-			nodes.classnames[name]++
-		}
-	})
-	cssTree.walk(ast, {
-		visit: 'IdSelector',
-		enter: function (node) {
-			const name = cleanCSSIdentifier(node.name)
-			if (!(name in nodes.ids)) {
-				throw new Error('encountered unused id selector when it should have been removed')
-			}
-
-			nodes.ids[name]++
 		}
 	})
 }

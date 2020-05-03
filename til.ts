@@ -7,7 +7,7 @@ const PROD = process.env.PROD == undefined ? true : process.env.PROD == 'true'
 
 const build = (prod: boolean) => {
 	const prodStr = prod ? 'production' : 'development'
-	task(`building for ${prodStr}`, () => {
+	task(`building for ${prodStr}`, true, () => {
 		til.build({
 			configPath: './tilrc.json',
 			prod,

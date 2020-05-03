@@ -4,7 +4,7 @@ import htmlMinifier from 'html-minifier'
 import uglifyJS from 'uglify-js'
 
 import { watch, File, collectFiles, writeFile, walktop } from './fs'
-import { readConfig, CompressKinds } from './config'
+import { Config, readConfig, CompressKinds } from './config'
 import { rip } from './rip'
 
 // Options specified through env vars or as command-line arguments
@@ -19,20 +19,28 @@ type Routes = {
 
 function build({ prod, configPath }: Options) {
 	const cfg = readConfig(configPath, prod)
-
-	resetOutputDir()
+	const taskv = (name: string, fn: () => void) => {
+		task(name, cfg.verbose, fn)
+	}
 
 	let pages = collectFiles(['./pages'], ['.html'])
 	let styles = collectFiles(['./pages', './styles'], ['.css'])
 	let scripts = collectFiles(['./pages'], ['.js'])
 
-	task('\ninstantiating components', () => processComponents(pages))
-	task('processing pages', () => processPages(pages, styles, prod, cfg.compress))
-	task('processing scripts', () => processScripts(scripts, prod, cfg.compress))
+	resetOutputDir()
+
+	taskv('instantiating components', () => processComponents(pages))
+	taskv('processing pages', () => processPages(pages, styles, cfg))
+	taskv('processing scripts', () => processScripts(scripts, prod, cfg.compress))
 }
 
-export function task(name: string, fn: () => void) {
-	process.stdout.write(name+'... ')
+export function task(name: string, verbose: boolean, fn: () => void) {
+	if (verbose === false) {
+		fn()
+		return
+	}
+
+	process.stdout.write(name + '... ')
 	const start = process.hrtime()
 	fn()
 	const end = process.hrtime(start)
@@ -58,16 +66,15 @@ function processComponents(pages: File[]): void {
 	}
 }
 
-function processPages(pages: File[], styles: File[], prod: boolean, compress: CompressKinds) {
+function processPages(pages: File[], styles: File[], cfg: Config) {
 	// Use `rip` to process HTML and CSS
 	// CSS is inlined within each HTML file by default
-	// If minify is true, node names will be minified
 	pages = rip(pages, styles, {
-		// Minify in production
-		minify: prod,
+		uglify: cfg.uglify,
+		removeUnusedCSS: cfg.removeUnusedCSS,
 	})
 
-	prepareNavigation(pages, prod, compress)
+	prepareNavigation(pages, cfg.uglify, cfg.compress)
 
 	for (const page of pages) {
 		let path = removeFirstDir(page.path)
@@ -77,17 +84,17 @@ function processPages(pages: File[], styles: File[], prod: boolean, compress: Co
 		// Create dir
 		fs.mkdirSync(outdir, { recursive: true })
 		// Write HTML to file
-		writeFile(outpath, page.data, compress)
+		writeFile(outpath, page.data, cfg.compress)
 	}
 }
 
-function prepareNavigation(pages: File[], prod: boolean, compress: CompressKinds): void {
+function prepareNavigation(pages: File[], uglify: boolean, compress: CompressKinds): void {
 	let navigation = fs.readFileSync(filepath.join(__dirname, '..', 'navigation.js'), 'utf8')
-	if (prod) {
+	if (uglify) {
 		navigation = uglifyJS.minify(navigation).code
 	}
 
-	const routes = prepareRoutes(pages, prod)
+	const routes = prepareRoutes(pages, uglify)
 
 	for (const page of pages) {
 		// Delete this page from routes, we can add the page HTML to the routes after the page loads
@@ -103,12 +110,12 @@ function prepareNavigation(pages: File[], prod: boolean, compress: CompressKinds
 	}
 }
 
-function prepareRoutes(pages: File[], prod: boolean): Routes {
+function prepareRoutes(pages: File[], uglify: boolean): Routes {
 	let routes: Routes = {}
 	for (const page of pages) {
 		// TODO: html minification should be done in a step before this one
 		// instead of as a side effect of preparing routes
-		if (prod) {
+		if (uglify) {
 			page.data = htmlMinify(page.data)
 		}
 		routes[pathToRoute(page.path)] = page.data

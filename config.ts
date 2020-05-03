@@ -1,9 +1,11 @@
 import fs from 'fs'
 
 // Options specified through the config file
-type Config = {
-	[index: string]: string
+export type Config = {
 	compress: CompressKinds
+	uglify: boolean
+	removeUnusedCSS: boolean
+	verbose: boolean
 }
 
 const COMPRESS_KINDS = ['none', 'gzip', 'brotli'] as const
@@ -11,9 +13,23 @@ export type CompressKinds = (typeof COMPRESS_KINDS)[number] // Union type
 
 // Read and validate config file
 export function readConfig(path: string, prod: boolean): Config {
-	// Defaults for `prod` == true
-	const cfgDefault: Config = {
-		compress: 'brotli',
+	let cfgDefault: Config
+	if (prod) {
+		// Defaults for `prod` == true
+		cfgDefault = {
+			verbose: false,
+			compress: 'brotli',
+			uglify: true,
+			removeUnusedCSS: true,
+		}
+	} else {
+		// Defaults for `prod` == false
+		cfgDefault = {
+			verbose: false,
+			compress: 'none',
+			uglify: false,
+			removeUnusedCSS: false,
+		}
 	}
 
 	let cfg: Config
@@ -24,11 +40,18 @@ export function readConfig(path: string, prod: boolean): Config {
 		cfg = cfgDefault
 	}
 
-	// If not specified or only some keys are specified, set defaults
-	for (const [key] of Object.entries(cfg)) {
-		if (cfg[key] === undefined) {
-			cfg[key] = cfgDefault[key]
-		}
+	// If some keys are not specified, set to default
+	if (cfg.verbose === undefined) {
+		cfg.verbose = cfgDefault.verbose
+	}
+	if (cfg.compress === undefined) {
+		cfg.compress = cfgDefault.compress
+	}
+	if (cfg.uglify === undefined) {
+		cfg.uglify = cfgDefault.uglify
+	}
+	if (cfg.removeUnusedCSS === undefined) {
+		cfg.removeUnusedCSS = cfgDefault.removeUnusedCSS
 	}
 
 	// Validate config
@@ -40,10 +63,8 @@ export function readConfig(path: string, prod: boolean): Config {
 		invalidOption('compress', cfg.compress)
 	}
 
-	// Set dev defaults
-	if (prod === false) {
-		// Never compress
-		cfg.compress = 'none'
+	if (cfg.verbose) {
+		console.log('\nconfig:', cfg)
 	}
 
 	return cfg
