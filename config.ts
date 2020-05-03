@@ -2,10 +2,11 @@ import fs from 'fs'
 
 // Options specified through the config file
 export type Config = {
+	verbose: boolean
+	navigationSPA: boolean
 	compress: CompressKinds
 	uglify: boolean
 	removeUnusedCSS: boolean
-	verbose: boolean
 }
 
 const COMPRESS_KINDS = ['none', 'gzip', 'brotli'] as const
@@ -18,6 +19,7 @@ export function readConfig(path: string, prod: boolean): Config {
 		// Defaults for `prod` == true
 		cfgDefault = {
 			verbose: false,
+			navigationSPA: true,
 			compress: 'brotli',
 			uglify: true,
 			removeUnusedCSS: true,
@@ -26,6 +28,7 @@ export function readConfig(path: string, prod: boolean): Config {
 		// Defaults for `prod` == false
 		cfgDefault = {
 			verbose: false,
+			navigationSPA: true,
 			compress: 'none',
 			uglify: false,
 			removeUnusedCSS: false,
@@ -43,6 +46,9 @@ export function readConfig(path: string, prod: boolean): Config {
 	// If some keys are not specified, set to default
 	if (cfg.verbose === undefined) {
 		cfg.verbose = cfgDefault.verbose
+	}
+	if (cfg.navigationSPA === undefined) {
+		cfg.navigationSPA = cfgDefault.navigationSPA
 	}
 	if (cfg.compress === undefined) {
 		cfg.compress = cfgDefault.compress

@@ -74,7 +74,16 @@ function processPages(pages: File[], styles: File[], cfg: Config) {
 		removeUnusedCSS: cfg.removeUnusedCSS,
 	})
 
-	prepareNavigation(pages, cfg.uglify, cfg.compress)
+	// Minify pages HTML
+	if (cfg.uglify) {
+		for (const page of pages) {
+			page.data = htmlMinify(page.data)
+		}
+	}
+
+	if (cfg.navigationSPA) {
+		prepareNavigation(pages, cfg.uglify, cfg.compress)
+	}
 
 	for (const page of pages) {
 		let path = removeFirstDir(page.path)
@@ -94,7 +103,7 @@ function prepareNavigation(pages: File[], uglify: boolean, compress: CompressKin
 		navigation = uglifyJS.minify(navigation).code
 	}
 
-	const routes = prepareRoutes(pages, uglify)
+	const routes = prepareRoutes(pages)
 
 	for (const page of pages) {
 		// Delete this page from routes, we can add the page HTML to the routes after the page loads
@@ -110,14 +119,9 @@ function prepareNavigation(pages: File[], uglify: boolean, compress: CompressKin
 	}
 }
 
-function prepareRoutes(pages: File[], uglify: boolean): Routes {
+function prepareRoutes(pages: File[]): Routes {
 	let routes: Routes = {}
 	for (const page of pages) {
-		// TODO: html minification should be done in a step before this one
-		// instead of as a side effect of preparing routes
-		if (uglify) {
-			page.data = htmlMinify(page.data)
-		}
 		routes[pathToRoute(page.path)] = page.data
 	}
 
