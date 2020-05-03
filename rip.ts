@@ -120,36 +120,25 @@ export function rip(htmlFiles: File[], cssFiles: File[], options: Options): File
 function processCSSNodes(ast: CSSNode, nodes: Occurrences): void {
 	// Walk through all class selectors and increment their count
 	// (Only if they are used, as we should have already removed all unused classnames, if necessary)
-	cssTree.walk(ast, {
-		visit: 'ClassSelector',
-		enter: function (node) {
-			const name = cleanCSSIdentifier(node.name)
-			// Only count nodes that are actually present in the HTML
-			if (!(name in nodes.classnames)) {
-				return
+	// TODO: figure out what to use instead of "any"
+	const incrementOccurrences = (selectorType: any, occ: NodeOccurrences) => {
+		cssTree.walk(ast, {
+			visit: selectorType,
+			enter: function (node: any) {
+				const name = cleanCSSIdentifier(node.name)
+				// Only count nodes that are actually present in the HTML
+				if (name in occ) {
+					occ[name]++
+				}
 			}
+		})
+	}
 
-			nodes.classnames[name]++
-		}
-	})
-	cssTree.walk(ast, {
-		visit: 'IdSelector',
-		enter: function (node) {
-			const name = cleanCSSIdentifier(node.name)
-			// Only count nodes that are actually present in the HTML
-			if (!(name in nodes.ids)) {
-				return
-			}
-
-			nodes.ids[name]++
-		}
-	})
+	incrementOccurrences('ClassSelector', nodes.classnames)
+	incrementOccurrences('IdSelector', nodes.ids)
 }
 
 function removeUnusedCSS(ast: CSSNode, nodes: Occurrences) {
-	// Never remove these special type selectors
-	const typeSelectorWhitelist = ['*', 'html']
-
 	// Walk AST and remove rules in which all selectors are unused
 	cssTree.walk(ast, {
 		enter: function (node: CSSNode, parentItem: CSSListItem<CSSNode>, parentList: CSSList<CSSNode>) {
@@ -160,83 +149,88 @@ function removeUnusedCSS(ast: CSSNode, nodes: Occurrences) {
 			}
 
 			if (node.type == 'Rule') {
-				const selList = node.prelude as cssTree.SelectorList
-				if (!selList) {
+				const selectorList = node.prelude as cssTree.SelectorList
+				if (!selectorList) {
 					return
 				}
 
-				selList.children.each((selector, item, list) => {
-					// Remove any unused class selectors from SelectorList
-					(selector as cssTree.Selector).children.each((s) => {
-						if (list.isEmpty()) {
-							return
-						}
-						if (s.type !== 'ClassSelector' && s.type !== 'TypeSelector' && s.type !== 'IdSelector') {
-							return
-						}
-						if (s.type === 'ClassSelector' && cleanCSSIdentifier(s.name) in nodes.classnames) {
-							return
-						}
-						if (s.type === 'IdSelector' && cleanCSSIdentifier(s.name) in nodes.ids) {
-							return
-						}
-						if (s.type === 'TypeSelector' && cleanCSSIdentifier(s.name) in nodes.typenames ||
-							typeSelectorWhitelist.includes(s.name)) {
-							return
-						}
-
-						list.remove(item)
-					})
-
-					// We've removed all the selectors, need to remove entire rule
-					if (list.isEmpty()) {
-						parentList.remove(parentItem)
-					}
-				})
+				removeUnusedSelectors(nodes, selectorList, () => parentList.remove(parentItem))
 			}
 		}
 	})
 }
 
+function removeUnusedSelectors(nodes: Occurrences, selectorList: cssTree.SelectorList, removeRule: () => void) {
+	// Never remove these special type selectors
+	const typeSelectorWhitelist = ['*', 'html']
+
+	// Remove any unused class selectors from SelectorList
+	selectorList.children.each((node, item, list) => {
+		const selector = node as cssTree.Selector
+		selector.children.each((node) => {
+			if (list.isEmpty()) {
+				return
+			}
+			if (node.type !== 'ClassSelector'
+				&& node.type !== 'TypeSelector'
+				&& node.type !== 'IdSelector') {
+				return
+			}
+
+			const name = cleanCSSIdentifier(node.name)
+			switch (node.type) {
+				case 'ClassSelector':
+					if (name in nodes.classnames) {
+						return
+					}
+					break
+				case 'IdSelector':
+					if (name in nodes.ids) {
+						return
+					}
+					break
+				case 'TypeSelector':
+					if (name in nodes.typenames || typeSelectorWhitelist.includes(name)) {
+						return
+					}
+			}
+
+			list.remove(item)
+		})
+
+		// We've removed all the selectors, need to remove entire rule
+		if (list.isEmpty()) {
+			removeRule()
+		}
+	})
+}
+
 function renameCSSNodes(names: Names, rename: Rename, ast: CSSNode): string {
-	// TODO: refactor
 	// For each selector in sorted order, walk through AST and rename each occurrence
-	let i = 0
-	for (const name of names.classnames) {
-		cssTree.walk(ast, {
-			visit: 'ClassSelector',
-			enter: function (node) {
-				const classname = cleanCSSIdentifier(node.name)
-				if (name !== classname) {
-					return
-				}
+	// TODO: figure out how to not use "any"
+	const renameSelector = (selectorType: any, selectorNames: string[], selectorRename: { [index: string]: string }) => {
+		let i = 0
+		for (const name of selectorNames) {
+			cssTree.walk(ast, {
+				visit: selectorType,
+				// TODO: figure out how to not use "any"
+				enter: function (node: any) {
+					const selName = cleanCSSIdentifier(node.name)
+					if (name !== selName) {
+						return
+					}
 
-				const newname = generateShortestName(i)
-				rename.classnames[name] = newname
-				node.name = newname
-			}
-		})
-		i++
+					const newname = generateShortestName(i)
+					selectorRename[name] = newname
+					node.name = newname
+				}
+			})
+			i++
+		}
 	}
 
-	// TODO: refactor
-	i = 0
-	for (const name of names.ids) {
-		cssTree.walk(ast, {
-			visit: 'IdSelector',
-			enter: function (node) {
-				const id = cleanCSSIdentifier(node.name)
-				if (name !== id) {
-					return
-				}
-
-				const newname = generateShortestName(i)
-				rename.ids[name] = newname
-				node.name = newname
-			}
-		})
-		i++
-	}
+	renameSelector('ClassSelector', names.classnames, rename.classnames)
+	renameSelector('IdSelector', names.ids, rename.ids)
 
 	return cssTree.generate(ast)
 }
@@ -248,38 +242,9 @@ function parseAndTrackHTMLNodes(nodes: Occurrences, data: string): HTMLNode {
 }
 
 function parseHTMLNodeChildren(nodes: Occurrences, node: HTMLNode): void {
-	const element = node as HTMLElement
-	if (element) {
-		if (element.classNames) {
-			// Count each className occurrence
-			for (const className of element.classNames) {
-				if (className in nodes.classnames) {
-					nodes.classnames[className]++
-					continue
-				}
-
-				nodes.classnames[className] = 1
-			}
-		}
-
-		const id = element.id
-		if (id) {
-			if (id in nodes.ids) {
-				nodes.ids[id]++
-			} else {
-				nodes.ids[id] = 1
-			}
-		}
-
-		// Count each tagName occurrence
-		const tagname = element.tagName
-		if (tagname) {
-			if (tagname in nodes.typenames) {
-				nodes.typenames[tagname]++
-			} else {
-				nodes.typenames[tagname] = 1
-			}
-		}
+	const el = node as HTMLElement
+	if (el) {
+		parseHTMLElement(nodes, el)
 	}
 
 	for (const c of node.childNodes) {
@@ -287,35 +252,73 @@ function parseHTMLNodeChildren(nodes: Occurrences, node: HTMLNode): void {
 	}
 }
 
+function parseHTMLElement(nodes: Occurrences, el: HTMLElement) {
+	if (el.classNames) {
+		// Count each className occurrence
+		for (const className of el.classNames) {
+			if (className in nodes.classnames) {
+				nodes.classnames[className]++
+				continue
+			}
+
+			nodes.classnames[className] = 1
+		}
+	}
+
+	const id = el.id
+	if (id) {
+		if (id in nodes.ids) {
+			nodes.ids[id]++
+		} else {
+			nodes.ids[id] = 1
+		}
+	}
+
+	// Count each tagName occurrence
+	const tag = el.tagName
+	if (tag) {
+		if (tag in nodes.typenames) {
+			nodes.typenames[tag]++
+		} else {
+			nodes.typenames[tag] = 1
+		}
+	}
+}
+
 function renameHTMLNodes(rename: Rename, node: HTMLNode) {
-	const element = node as HTMLElement
-	if (element) {
-		// Rename classes
-		if (element.classNames) {
-			const replace = element.classNames.map(c => {
-				if (c in rename.classnames) {
-					return rename.classnames[c]
-				}
-
-				return c
-			})
-
-			if (replace.length > 0) {
-				element.setAttribute('class', replace.join(' '))
-			}
-		}
-
-		if (element.id) {
-			let r = element.id
-			if (element.id in rename.ids) {
-				r = rename.ids[element.id]
-			}
-			element.setAttribute('id', r)
-		}
+	const el = node as HTMLElement
+	if (el) {
+		renameHTMLElement(rename, el)
 	}
 
 	for (const child of node.childNodes) {
 		renameHTMLNodes(rename, child)
+	}
+}
+
+function renameHTMLElement(rename: Rename, el: HTMLElement) {
+	// Rename classes
+	if (el.classNames) {
+		const replace = el.classNames.map(c => {
+			if (c in rename.classnames) {
+				return rename.classnames[c]
+			}
+
+			return c
+		})
+
+		if (replace.length > 0) {
+			el.setAttribute('class', replace.join(' '))
+		}
+	}
+
+	// Rename ID
+	if (el.id) {
+		let id = el.id
+		if (el.id in rename.ids) {
+			id = rename.ids[el.id]
+		}
+		el.setAttribute('id', id)
 	}
 }
 
@@ -373,20 +376,3 @@ function generateShortestName(idx: number): string {
 
 	return ascii[idx]
 }
-
-function time(s: string): () => void {
-	const start = process.hrtime()
-
-	return function () {
-		const end = process.hrtime(start)
-
-		// If time is under a second, format like "340ms"
-		let fmt = `${(end[1] / 1e6).toPrecision(3)}ms`
-		if (end[0] > 0) {
-			// Otherwise, format like "3.150s"
-			fmt = `${end[0]}${(end[1] / 1e9).toPrecision(3).toString().slice(1)}s`
-		}
-		console.log(`${s} finished in ${fmt}`)
-	}
-}
-time
