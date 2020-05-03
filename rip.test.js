@@ -26,6 +26,27 @@ describe('unused CSS removal', () => {
 		const css = ['#used { padding: 4px; }']
 		expect(ripData(html, css, options)).toEqual(['<style>#used{padding:4px}</style><a id="used"> hi </a>'])
 	})
+
+	test('does not remove attribute selectors', () => {
+		const html = ['<a> hi </a>']
+		const css = ['[type="checkbox"],[type="radio"]{box-sizing: border-box;padding: 0;}']
+		expect(ripData(html, css, options)).toEqual(['<style>[type="checkbox"],[type="radio"]{box-sizing:border-box;padding:0}</style><a> hi </a>'])
+	})
+	test('does not remove "*" selector', () => {
+		const html = ['<a> hi </a>']
+		const css = ['*{padding:0}']
+		expect(ripData(html, css, options)).toEqual(['<style>*{padding:0}</style><a> hi </a>'])
+	})
+	test('does not remove "html" selector', () => {
+		const html = ['<a> hi </a>']
+		const css = ['html{padding:0}']
+		expect(ripData(html, css, options)).toEqual(['<style>html{padding:0}</style><a> hi </a>'])
+	})
+	test('does not remove "body" selector', () => {
+		const html = ['<a> hi </a>']
+		const css = ['body{padding:0}']
+		expect(ripData(html, css, options)).toEqual(['<style>body{padding:0}</style><a> hi </a>'])
+	})
 	test('removes unused type selectors', () => {
 		const html = ['<a> hi </a>']
 		const css = ['h1 { padding: 4px; }']

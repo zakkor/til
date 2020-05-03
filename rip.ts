@@ -147,7 +147,10 @@ function processCSSNodes(ast: CSSNode, nodes: Occurrences): void {
 }
 
 function removeUnusedCSS(ast: CSSNode, nodes: Occurrences) {
-	// Walk AST and remove rules in which the only selector is an unused class
+	// Never remove these special type selectors
+	const typeSelectorWhitelist = ['*', 'html']
+
+	// Walk AST and remove rules in which all selectors are unused
 	cssTree.walk(ast, {
 		enter: function (node: CSSNode, parentItem: CSSListItem<CSSNode>, parentList: CSSList<CSSNode>) {
 			// Remove comments
@@ -177,7 +180,8 @@ function removeUnusedCSS(ast: CSSNode, nodes: Occurrences) {
 						if (s.type === 'IdSelector' && cleanCSSIdentifier(s.name) in nodes.ids) {
 							return
 						}
-						if (s.type === 'TypeSelector' && cleanCSSIdentifier(s.name) in nodes.typenames) {
+						if (s.type === 'TypeSelector' && cleanCSSIdentifier(s.name) in nodes.typenames ||
+							typeSelectorWhitelist.includes(s.name)) {
 							return
 						}
 
