@@ -2,6 +2,8 @@ import fs from 'fs'
 import filepath from 'path'
 import htmlMinifier from 'html-minifier'
 import uglifyJS from 'uglify-js'
+import imagemin from 'imagemin'
+import imageminWebp from 'imagemin-webp'
 
 import nodeHTMLParser, { Node as HTMLNode, HTMLElement } from 'node-html-parser'
 import cssTree, { CssNode as CSSNode } from 'css-tree'
@@ -79,6 +81,7 @@ function parseFiles(pages: File[], styles: File[]): { pages: HTMLFile[], styles:
 }
 
 function processImages(pages: HTMLFile[]) {
+	const acceptedExtensions = ['.jpg', '.png']
 	for (const page of pages) {
 		walkHTML(page.root, (el: HTMLElement) => {
 			if (el.tagName != 'img') {
@@ -87,18 +90,33 @@ function processImages(pages: HTMLFile[]) {
 			if (!('src' in el.attributes)) {
 				return
 			}
+			const src = el.attributes.src
+			const extension = src.substring(src.lastIndexOf('.'), src.length)
+			if (!acceptedExtensions.includes(extension)) {
+				return
+			}
 
-			let src = el.attributes.src
 			let path = src
 			if (path[0] === '/') {
 				path = path.slice(1)
 			}
-			const newpath = filepath.join('dist', path)
-			fs.mkdirSync(filepath.dirname(newpath), { recursive: true })
-			fs.copyFileSync(path, newpath)
 
+			// create output dir
+			const dirname = filepath.join('dist', filepath.dirname(path))
+			fs.mkdirSync(dirname, { recursive: true })
+			// convert to webp and write to file
+			imagemin([path], {
+				destination: dirname,
+				plugins: [imageminWebp({
+					lossless: true // Losslessly encode images
+				})]
+			})
+			const srcwebp = src.slice(0, src.length - extension.length)
+
+			// <source media="(max-width: 799px)" srcset="/assets/images/varanghelia50p.jpg">
 			const pictureNode = nodeHTMLParser(`<picture>
-				<source media="(max-width: 799px)" srcset="/assets/images/varanghelia50p.jpg">
+				<source srcset="${srcwebp}">
+				<source srcset="${src}">
 				<img src="${src}">
 			</picture>`)
 			const parent = el.parentNode as HTMLElement
@@ -106,6 +124,7 @@ function processImages(pages: HTMLFile[]) {
 		})
 	}
 }
+
 
 function processPages(pages: HTMLFile[], styles: CSSFile[], cfg: Config) {
 	// Use `rip` to process HTML and CSS
