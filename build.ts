@@ -112,6 +112,8 @@ function processImages(pages: HTMLFile[]) {
 				})]
 			})
 			const srcwebp = src.slice(0, src.length - extension.length) + '.webp'
+			// copy original image
+			fs.copyFileSync(path, filepath.join(dirname, filepath.basename(path)))
 
 			// <source media="(max-width: 799px)" srcset="/assets/images/varanghelia50p.jpg">
 			const pictureNode = nodeHTMLParser(`<picture>
