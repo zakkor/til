@@ -1,17 +1,12 @@
 import cssTree, { CssNode as CSSNode, List as CSSList, ListItem as CSSListItem } from 'css-tree'
-import nodeHTMLParser, { Node as HTMLNode, HTMLElement } from 'node-html-parser'
-import { File } from './fs'
+import { Node as HTMLNode, HTMLElement } from 'node-html-parser'
+import { walkHTML, HTMLFile, CSSFile } from './build'
 
 type Options = {
 	// "uglify" specifies if nodes should be renamed (class and id names)
 	uglify: boolean
 	// "removeUnusedCSS" specifies if unused CSS rules should be removed
 	removeUnusedCSS: boolean
-}
-
-type ParsedFile = {
-	file: File
-	ast: CSSNode | HTMLNode
 }
 
 type Occurrences = {
@@ -36,13 +31,7 @@ type Rename = {
 	ids: { [index: string]: string }
 }
 
-export function rip(htmlFiles: File[], cssFiles: File[], options: Options): File[] {
-	// Store parsed CSS files here, and only clone them when needed to avoid parsing them multiple times
-	const parsedCSS: ParsedFile[] = cssFiles.map(css => {
-		// Parse given CSS file into an AST
-		return { file: css, ast: cssTree.parse(css.data) }
-	})
-
+export function rip(htmlFiles: HTMLFile[], cssFiles: CSSFile[], options: Options): HTMLFile[] {
 	const ripped = htmlFiles.map(html => {
 		// Determine total node usage for this (HTML; CSS...) pair
 		let nodes: Occurrences = {
@@ -51,30 +40,23 @@ export function rip(htmlFiles: File[], cssFiles: File[], options: Options): File
 			ids: {},
 		}
 
-		// Parse HTML into an AST, incrementing each occurrence of every renameable node.
-		// Save AST on object to reuse later when renaming each node
-		const ast = parseAndTrackHTMLNodes(nodes, html.data)
+		processHTMLNodes(nodes, html.root)
 
-		// TODO: refactor
-		let clonedCSS: ParsedFile[] = []
-		parsedCSS.forEach(css => {
-			const c = {
+		const clonedCSS = cssFiles.map(css => {
+			return {
 				file: css.file,
-				ast: cssTree.clone(css.ast as CSSNode),
+				root: cssTree.clone(css.root),
 			}
-			clonedCSS.push(c)
 		})
 
 		clonedCSS.forEach(css => {
-			const ast = css.ast as CSSNode
-
 			// Remove unused nodes
 			if (options.removeUnusedCSS) {
-				removeUnusedCSS(ast, nodes)
+				removeUnusedCSS(css.root, nodes)
 			}
 
 			// Increment each node occurrence
-			processCSSNodes(ast, nodes)
+			processCSSNodes(css.root, nodes)
 		})
 
 		// Calculate the total byte size of each node (n.count * n.name.length) and collect it into a sorted array
@@ -91,9 +73,9 @@ export function rip(htmlFiles: File[], cssFiles: File[], options: Options): File
 		const inlineCSS: string = clonedCSS.map(pcss => {
 			let data = undefined
 			if (options.uglify) {
-				data = renameCSSNodes(names, rename, (pcss.ast as CSSNode))
+				data = renameCSSNodes(names, rename, (pcss.root as CSSNode))
 			} else {
-				data = cssTree.generate(pcss.ast as CSSNode)
+				data = cssTree.generate(pcss.root as CSSNode)
 			}
 			return {
 				path: pcss.file.path,
@@ -103,15 +85,18 @@ export function rip(htmlFiles: File[], cssFiles: File[], options: Options): File
 
 		if (options.uglify) {
 			// Rewrite all nodes according to `rename`
-			renameHTMLNodes(rename, ast)
+			renameHTMLNodes(rename, html.root)
 		}
 
-		let data = ast.toString()
+		let data = html.root.toString()
 		// Insert right where <body> starts
 		data = data.replace('<body>', `<body><style>${inlineCSS}</style>`)
 		return {
-			path: html.path,
-			data,
+			file: {
+				path: html.file.path,
+				data,
+			},
+			root: html.root,
 		}
 	})
 	return ripped
@@ -235,24 +220,14 @@ function renameCSSNodes(names: Names, rename: Rename, ast: CSSNode): string {
 	return cssTree.generate(ast)
 }
 
-function parseAndTrackHTMLNodes(nodes: Occurrences, data: string): HTMLNode {
-	const ast = nodeHTMLParser(data, { script: true, style: true })
-	parseHTMLNodeChildren(nodes, ast)
-	return ast
+// Walk HTML AST, incrementing each occurrence of every renameable node.
+function processHTMLNodes(nodes: Occurrences, node: HTMLNode): void {
+	walkHTML(node, (el: HTMLElement) => {
+		processHTMLElement(nodes, el)
+	})
 }
 
-function parseHTMLNodeChildren(nodes: Occurrences, node: HTMLNode): void {
-	const el = node as HTMLElement
-	if (el) {
-		parseHTMLElement(nodes, el)
-	}
-
-	for (const c of node.childNodes) {
-		parseHTMLNodeChildren(nodes, c)
-	}
-}
-
-function parseHTMLElement(nodes: Occurrences, el: HTMLElement) {
+function processHTMLElement(nodes: Occurrences, el: HTMLElement) {
 	if (el.classNames) {
 		// Count each className occurrence
 		for (const className of el.classNames) {
@@ -286,14 +261,9 @@ function parseHTMLElement(nodes: Occurrences, el: HTMLElement) {
 }
 
 function renameHTMLNodes(rename: Rename, node: HTMLNode) {
-	const el = node as HTMLElement
-	if (el) {
+	walkHTML(node, (el: HTMLElement) => {
 		renameHTMLElement(rename, el)
-	}
-
-	for (const child of node.childNodes) {
-		renameHTMLNodes(rename, child)
-	}
+	})
 }
 
 function renameHTMLElement(rename: Rename, el: HTMLElement) {
