@@ -111,7 +111,7 @@ function processImages(pages: HTMLFile[]) {
 					lossless: true // Losslessly encode images
 				})]
 			})
-			const srcwebp = src.slice(0, src.length - extension.length)
+			const srcwebp = src.slice(0, src.length - extension.length) + '.webp'
 
 			// <source media="(max-width: 799px)" srcset="/assets/images/varanghelia50p.jpg">
 			const pictureNode = nodeHTMLParser(`<picture>
