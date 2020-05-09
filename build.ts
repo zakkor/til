@@ -88,7 +88,21 @@ function processImages(pages: HTMLFile[]) {
 				return
 			}
 
-			el.setAttribute('src', '/rewrote/src.webp')
+			let src = el.attributes.src
+			let path = src
+			if (path[0] === '/') {
+				path = path.slice(1)
+			}
+			const newpath = filepath.join('dist', path)
+			fs.mkdirSync(filepath.dirname(newpath), { recursive: true })
+			fs.copyFileSync(path, newpath)
+
+			const pictureNode = nodeHTMLParser(`<picture>
+				<source media="(max-width: 799px)" srcset="/assets/images/varanghelia50p.jpg">
+				<img src="${src}">
+			</picture>`)
+			const parent = el.parentNode as HTMLElement
+			parent.exchangeChild(el, pictureNode)
 		})
 	}
 }
