@@ -101,6 +101,21 @@ function processImages(pages: HTMLFile[]) {
 				path = path.slice(1)
 			}
 
+
+			// Responsive optimizations:
+			// Breakpoints:
+			// (min-width: 640px)
+			// (min-width: 768px)
+			// (min-width: 1024px)
+			// (min-width: 1280px)
+			// For every breakpoint that applies, create a new size for the image, and include it in the srcset, for that breakpoint
+			//
+			// HiDPI optimizations: for every size of an image (including downscales), also serve a 2x, and possibly 3x size
+			// uses srcset "2x 3x" attributes
+			//
+			// For fluid images, do both responsive optimizations and hidpi optimizations (for each size)
+			// For fixed width images (autodetected based on styles and attributes), we should perform only the hidpi optimizations
+
 			// create output dir
 			const dirname = filepath.join('dist', filepath.dirname(path))
 			fs.mkdirSync(dirname, { recursive: true })
