@@ -31,8 +31,8 @@ type Rename = {
 	ids: { [index: string]: string }
 }
 
-export function rip(htmlFiles: HTMLFile[], cssFiles: CSSFile[], options: Options): HTMLFile[] {
-	const ripped = htmlFiles.map(html => {
+export async function rip(htmlFiles: HTMLFile[], cssFiles: CSSFile[], options: Options): Promise<HTMLFile[]> {
+	const ripped = Promise.all(htmlFiles.map(async html => {
 		// Determine total node usage for this (HTML; CSS...) pair
 		let nodes: Occurrences = {
 			classnames: {},
@@ -85,7 +85,7 @@ export function rip(htmlFiles: HTMLFile[], cssFiles: CSSFile[], options: Options
 
 		if (options.uglify) {
 			// Rewrite all nodes according to `rename`
-			renameHTMLNodes(rename, html.root)
+			await renameHTMLNodes(rename, html.root)
 		}
 
 		let data = html.root.toString()
@@ -98,7 +98,7 @@ export function rip(htmlFiles: HTMLFile[], cssFiles: CSSFile[], options: Options
 			},
 			root: html.root,
 		}
-	})
+	}))
 	return ripped
 }
 
@@ -221,8 +221,8 @@ function renameCSSNodes(names: Names, rename: Rename, ast: CSSNode): string {
 }
 
 // Walk HTML AST, incrementing each occurrence of every renameable node.
-function processHTMLNodes(nodes: Occurrences, node: HTMLNode): void {
-	walkHTML(node, (el: HTMLElement) => {
+async function processHTMLNodes(nodes: Occurrences, node: HTMLNode) {
+	await walkHTML(node, async (el: HTMLElement) => {
 		processHTMLElement(nodes, el)
 	})
 }
@@ -260,8 +260,8 @@ function processHTMLElement(nodes: Occurrences, el: HTMLElement) {
 	}
 }
 
-function renameHTMLNodes(rename: Rename, node: HTMLNode) {
-	walkHTML(node, (el: HTMLElement) => {
+async function renameHTMLNodes(rename: Rename, node: HTMLNode) {
+	await walkHTML(node, async (el: HTMLElement) => {
 		renameHTMLElement(rename, el)
 	})
 }

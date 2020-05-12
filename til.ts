@@ -5,10 +5,10 @@ const bs = browserSync.create()
 
 const PROD = process.env.PROD == undefined ? true : process.env.PROD == 'true'
 
-const build = (prod: boolean) => {
+const build = async (prod: boolean) => {
 	const prodStr = prod ? 'production' : 'development'
-	task(`building for ${prodStr}`, true, () => {
-		til.build({
+	await task(`building for ${prodStr}`, true, async () => {
+		await til.build({
 			configPath: './tilrc.json',
 			prod,
 		})
@@ -29,9 +29,9 @@ if (process.argv.includes('dev')) {
 	build(false)
 	bs.reload(['*.html'])
 
-	til.watch(file => {
+	til.watch(async file => {
 		// Development build
-		build(false)
+		await build(false)
 		const reload = file.endsWith('.css') ? ['*.css'] : ['*.html', '*.css']
 		bs.reload(reload)
 	})

@@ -2,11 +2,7 @@ import fs from 'fs'
 import filepath from 'path'
 import htmlMinifier from 'html-minifier'
 import uglifyJS from 'uglify-js'
-
 import sharp from 'sharp'
-// import imagemin from 'imagemin'
-// import imageminWebp from 'imagemin-webp'
-
 import nodeHTMLParser, { Node as HTMLNode, HTMLElement } from 'node-html-parser'
 import cssTree, { CssNode as CSSNode } from 'css-tree'
 
@@ -34,10 +30,13 @@ export type CSSFile = {
 	root: CSSNode
 }
 
-function build({ prod, configPath }: Options) {
+type PromiseFunc = () => Promise<void>
+type VoidFunc = () => void
+
+async function build({ prod, configPath }: Options) {
 	const cfg = readConfig(configPath, prod)
-	const taskv = (name: string, fn: () => void) => {
-		task(name, cfg.verbose, fn)
+	const taskv = async (name: string, fn: PromiseFunc | VoidFunc) => {
+		await task(name, cfg.verbose, fn)
 	}
 
 	let pages = collectFiles(['./pages'], ['.html'])
@@ -46,14 +45,16 @@ function build({ prod, configPath }: Options) {
 
 	resetOutputDir()
 
-	taskv('components', () => processComponents(pages))
+	await taskv('components', () => processComponents(pages))
 	let parsed: { pages: HTMLFile[], styles: CSSFile[] }
-	taskv('parsing', () => {
+	await taskv('parsing', () => {
 		parsed = parseFiles(pages, styles)
 	})
-	taskv('images', () => processImages(parsed.pages))
-	taskv('pages', () => processPages(parsed.pages, parsed.styles, cfg))
-	taskv('scripts', () => processScripts(scripts, prod, cfg.compress))
+	await taskv('images', async () => {
+		await processImages(parsed.pages)
+	})
+	await taskv('pages', () => processPages(parsed.pages, parsed.styles, cfg))
+	await taskv('scripts', () => processScripts(scripts, prod, cfg.compress))
 }
 
 // Go through each component and substitute in pages
@@ -82,10 +83,10 @@ function parseFiles(pages: File[], styles: File[]): { pages: HTMLFile[], styles:
 	return parsed
 }
 
-function processImages(pages: HTMLFile[]) {
+async function processImages(pages: HTMLFile[]) {
 	const acceptedExtensions = ['.jpg', '.png']
 	for (const page of pages) {
-		walkHTML(page.root, (el: HTMLElement) => {
+		await walkHTML(page.root, async (el: HTMLElement) => {
 			if (el.tagName != 'img') {
 				return
 			}
@@ -98,65 +99,59 @@ function processImages(pages: HTMLFile[]) {
 				return
 			}
 
-			// "assets/images/cat.png"
+			// is like "assets/images/cat.png"
 			let path = src
 			if (path[0] === '/') {
 				path = path.slice(1)
 			}
-			const dirname = filepath.join('dist', filepath.dirname(path)) // "dist/assets/images"
-			// const outpath = filepath.join('dist', path) // "dist/assets/images/cat.png"
-			const pathnoext = path.slice(0, path.length - extension.length) // "assets/images/cat"
-			const pathwebp = pathnoext + '.webp' // "assets/images/cat.webp"
-			// const outpathwebp = filepath.join('dist', pathwebp) // "dist/assets/images/cat.webp"
-			const srcwebp = '/' + pathwebp // "/assets/images/cat.webp"
+			const dirname = filepath.join('dist', filepath.dirname(path)) // is like "dist/assets/images"
+			const outpath = filepath.join('dist', path) // is like "dist/assets/images/cat.png"
+			const pathnoext = path.slice(0, path.length - extension.length) // is like "assets/images/cat"
+			const pathwebp = pathnoext + '.webp' // is like "assets/images/cat.webp"
+			const outpathwebp = filepath.join('dist', pathwebp) // is like "dist/assets/images/cat.webp"
+			const srcwebp = '/' + pathwebp // is like "/assets/images/cat.webp"
 
-			// Responsive optimizations:
-			// Breakpoints:
-			// (min-width: 640px)
-			// (min-width: 768px)
-			// (min-width: 1024px)
-			// (min-width: 1280px)
-			// image: 1500x500
-			// 4x = 1500x500
-			// 3x = 1125x375
-			// ...
-			// For every breakpoint that applies, create a new size for the image, and include it in the srcset, for that breakpoint
-			//
-			// HiDPI optimizations: for every size of an image (including downscales), also serve a 2x, and possibly 3x size
-			// uses srcset "2x 3x" attributes
-			//
-			// For fluid images, do both responsive optimizations and hidpi optimizations (for each size)
-			// For fixed width images (autodetected based on styles and attributes), we should perform only the hidpi optimizations
-
-			// create output dir
+			// Create output dir
 			fs.mkdirSync(dirname, { recursive: true })
 
-			writeResponsiveImages(path, () => {})
+			// Always copy original file
+			fs.copyFileSync(path, filepath.join('dist', path))
+			const mediaQueries = await writeResponsiveImages(path)
 
-			// resizedPaths[0] is the original image (biggest)
+			console.log(mediaQueries);
 
+			const imageType = `image/${extension.slice(1)}`
+			let picture = '<picture>'
+			for (const mq of mediaQueries) {
+				picture += `<source type="${imageType}" media="${mq.query}" srcset="/${mq.path}">`
+			}
+			picture += `<img src="${src}">`
+			picture += '</picture>'
 
+			// const pictureNode = nodeHTMLParser(`<picture>
+			// 	<source type="image/webp" srcset="${srcwebp}">
+			// 	<source type="image/${extension.slice(1)}" srcset="${src}">
+			// 	<img src="${src}">
+			// </picture>`)
+			const pictureNode = nodeHTMLParser(picture)
+			const parent = el.parentNode as HTMLElement
+			parent.exchangeChild(el, pictureNode)
 			// // Convert to webp
 			// sharp(origoutpath)
 			// 	.toFile(outpathwebp)
 			// 	.then(() => {
 			// 		console.log('resized')
 			// 	})
-
-
-			// <source media="(max-width: 799px)" srcset="/assets/images/varanghelia50p.jpg">
-			const pictureNode = nodeHTMLParser(`<picture>
-				<source type="image/webp" srcset="${srcwebp}">
-				<source type="image/${extension.slice(1)}" srcset="${src}">
-				<img src="${src}">
-			</picture>`)
-			const parent = el.parentNode as HTMLElement
-			parent.exchangeChild(el, pictureNode)
 		})
 	}
 }
 
-function writeResponsiveImages(path: string, fn: (mediaQueries: {}) => void): void {
+type MediaQuery = {
+	query: string
+	path: string
+}
+
+async function writeResponsiveImages(path: string): Promise<MediaQuery[]> {
 	const breakpoints = [
 		{ name: 'sm', size: 640 },
 		{ name: 'md', size: 768 },
@@ -167,55 +162,55 @@ function writeResponsiveImages(path: string, fn: (mediaQueries: {}) => void): vo
 	// If we are on a 640px wide screen, we would serve a (640 * 0.75) pixels wide image.
 	const resizePercentage = 0.75
 
-	// Always copy original file
-	fs.copyFileSync(path, filepath.join('dist', path))
+	const { width } = await sharp(path)
+		.metadata();
+		// .then(({ width }) => {
+		
+	if (width === undefined) {
+		throw new Error('cannot detect image width')
+	}
 
-	sharp(path)
-		.metadata()
-		.then(({ width }) => {
-			if (width === undefined) {
-				return
-			}
+	let assigned: (number | null)[] = [
+		null,
+		null,
+		null,
+		null,
+	]
 
-			let assigned: (number | null)[] = [
-				null,
-				null,
-				null,
-				null,
-			]
+	let a = 0
+	for (const bp of breakpoints) {
+		if (width < bp.size) {
+			break
+		}
 
-			let a = 0
-			for (const bp of breakpoints) {
-				if (width < bp.size) {
-					break
-				}
+		assigned[a] = bp.size * resizePercentage
+		a++
+	}
 
-				assigned[a] = bp.size * resizePercentage
-				a++
-			}
+	console.log('assigned:', assigned)
 
-			console.log('assigned:', assigned)
+	let mediaQueries: MediaQuery[] = []
+	let alreadyResized: number[] = [width]
+	for (let i = 0; i < assigned.length; i++) {
+		const size = assigned[i]
+		if (size === null) {
+			continue
+		}
+		if (alreadyResized.includes(size)) {
+			continue
+		}
 
-			let alreadyResized: number[] = [width]
-			for (let i = 0; i < assigned.length; i++) {
-				const size = assigned[i]
-				if (size === null) {
-					continue
-				}
-				if (alreadyResized.includes(size)) {
-					continue
-				}
+		const bp = breakpoints[i]
+		const resizedPath = resizedImagePath(path, bp.name)
+		sharp(path)
+			.resize(size)
+			.toFile(filepath.join('dist', resizedPath))
 
-				const bp = breakpoints[i].name
-				sharp(path)
-					.resize(size)
-					.toFile(filepath.join('dist', resizedImagePath(path, bp)))
+		mediaQueries.push({query: `(max-width: ${bp.size}px)`, path: resizedPath})
+		alreadyResized.push(size)
+	}
 
-				alreadyResized.push(size)
-			}
-
-			fn()
-		})
+	return mediaQueries
 }
 
 function resizedImagePath(path: string, bp: string): string {
@@ -224,10 +219,10 @@ function resizedImagePath(path: string, bp: string): string {
 	return pathnoext + '_' + bp + extension
 }
 
-function processPages(pages: HTMLFile[], styles: CSSFile[], cfg: Config) {
+async function processPages(pages: HTMLFile[], styles: CSSFile[], cfg: Config) {
 	// Use `rip` to process HTML and CSS
 	// CSS is inlined within each HTML file by default
-	pages = rip(pages, styles, {
+	pages = await rip(pages, styles, {
 		uglify: cfg.uglify,
 		removeUnusedCSS: cfg.removeUnusedCSS,
 	})
@@ -304,26 +299,26 @@ export default {
 	watch,
 }
 
-export function walkHTML(node: HTMLNode, fn: (el: HTMLElement) => void) {
+export async function walkHTML(node: HTMLNode, fn: (el: HTMLElement) => Promise<void>) {
 	const el = node as HTMLElement
 	if (el) {
-		fn(el)
+		await fn(el)
 	}
 
 	for (const c of node.childNodes) {
-		walkHTML(c, fn)
+		await walkHTML(c, fn)
 	}
 }
 
-export function task(name: string, verbose: boolean, fn: () => void) {
+export async function task(name: string, verbose: boolean, fn:  PromiseFunc | VoidFunc) {
 	if (verbose === false) {
-		fn()
+		await fn()
 		return
 	}
 
 	process.stdout.write(name + '... ')
 	const start = process.hrtime()
-	fn()
+	await fn()
 	const end = process.hrtime(start)
 
 	// If time is under a second, format like "340ms"
