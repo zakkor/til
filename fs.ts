@@ -66,7 +66,13 @@ function collect(paths: string[], extensions: string[]): string[] {
 }
 
 export function walk(path: string, fn: WalkFn): void {
-	const dir = fs.opendirSync(path)
+	let dir: fs.Dir
+	try {
+		dir = fs.opendirSync(path)
+	} catch {
+		// Doesn't exist
+		return
+	}
 
 	let dirent: fs.Dirent
 	while (dirent = dir.readSync()) {

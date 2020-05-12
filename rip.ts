@@ -40,7 +40,7 @@ export async function rip(htmlFiles: HTMLFile[], cssFiles: CSSFile[], options: O
 			ids: {},
 		}
 
-		processHTMLNodes(nodes, html.root)
+		await processHTMLNodes(nodes, html.root)
 
 		const clonedCSS = cssFiles.map(css => {
 			return {

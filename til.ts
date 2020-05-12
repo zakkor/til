@@ -26,6 +26,7 @@ if (process.argv.includes('dev')) {
 	})
 
 	// Initial build
+	// TODO: await
 	build(false)
 	bs.reload(['*.html'])
 

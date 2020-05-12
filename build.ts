@@ -46,14 +46,20 @@ async function build({ prod, configPath }: Options) {
 	resetOutputDir()
 
 	await taskv('components', () => processComponents(pages))
+
 	let parsed: { pages: HTMLFile[], styles: CSSFile[] }
 	await taskv('parsing', () => {
 		parsed = parseFiles(pages, styles)
 	})
+
 	await taskv('images', async () => {
 		await processImages(parsed.pages)
 	})
-	await taskv('pages', () => processPages(parsed.pages, parsed.styles, cfg))
+
+	await taskv('pages', async () => {
+		await processPages(parsed.pages, parsed.styles, cfg)
+	})
+
 	await taskv('scripts', () => processScripts(scripts, prod, cfg.compress))
 }
 
@@ -110,6 +116,7 @@ async function processImages(pages: HTMLFile[]) {
 			const pathwebp = pathnoext + '.webp' // is like "assets/images/cat.webp"
 			const outpathwebp = filepath.join('dist', pathwebp) // is like "dist/assets/images/cat.webp"
 			const srcwebp = '/' + pathwebp // is like "/assets/images/cat.webp"
+			const imageType = `image/${extension.slice(1)}` // is like "image/png"
 
 			// Create output dir
 			fs.mkdirSync(dirname, { recursive: true })
@@ -118,9 +125,14 @@ async function processImages(pages: HTMLFile[]) {
 			fs.copyFileSync(path, filepath.join('dist', path))
 			const mediaQueries = await writeResponsiveImages(path)
 
+			// // Convert to webp
+			// sharp(origoutpath)
+			// 	.toFile(outpathwebp)
+			// 	.then(() => {
+			// 		console.log('resized')
+			// 	})
 			console.log(mediaQueries);
 
-			const imageType = `image/${extension.slice(1)}`
 			let picture = '<picture>'
 			for (const mq of mediaQueries) {
 				picture += `<source type="${imageType}" media="${mq.query}" srcset="/${mq.path}">`
@@ -128,20 +140,9 @@ async function processImages(pages: HTMLFile[]) {
 			picture += `<img src="${src}">`
 			picture += '</picture>'
 
-			// const pictureNode = nodeHTMLParser(`<picture>
-			// 	<source type="image/webp" srcset="${srcwebp}">
-			// 	<source type="image/${extension.slice(1)}" srcset="${src}">
-			// 	<img src="${src}">
-			// </picture>`)
 			const pictureNode = nodeHTMLParser(picture)
 			const parent = el.parentNode as HTMLElement
 			parent.exchangeChild(el, pictureNode)
-			// // Convert to webp
-			// sharp(origoutpath)
-			// 	.toFile(outpathwebp)
-			// 	.then(() => {
-			// 		console.log('resized')
-			// 	})
 		})
 	}
 }
@@ -164,7 +165,6 @@ async function writeResponsiveImages(path: string): Promise<MediaQuery[]> {
 
 	const { width } = await sharp(path)
 		.metadata();
-		// .then(({ width }) => {
 		
 	if (width === undefined) {
 		throw new Error('cannot detect image width')
@@ -186,7 +186,6 @@ async function writeResponsiveImages(path: string): Promise<MediaQuery[]> {
 		assigned[a] = bp.size * resizePercentage
 		a++
 	}
-
 	console.log('assigned:', assigned)
 
 	let mediaQueries: MediaQuery[] = []
@@ -202,7 +201,8 @@ async function writeResponsiveImages(path: string): Promise<MediaQuery[]> {
 
 		const bp = breakpoints[i]
 		const resizedPath = resizedImagePath(path, bp.name)
-		sharp(path)
+		
+		await sharp(path)
 			.resize(size)
 			.toFile(filepath.join('dist', resizedPath))
 
@@ -310,7 +310,7 @@ export async function walkHTML(node: HTMLNode, fn: (el: HTMLElement) => Promise<
 	}
 }
 
-export async function task(name: string, verbose: boolean, fn:  PromiseFunc | VoidFunc) {
+export async function task(name: string, verbose: boolean, fn: PromiseFunc | VoidFunc) {
 	if (verbose === false) {
 		await fn()
 		return
