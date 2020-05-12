@@ -253,6 +253,8 @@ async function processSVGs(pages: HTMLFile[]) {
         }]
 			})
 			const optimized = await svgo.optimize(svg)
+			// Write file too, it may be used by CSS.
+			fs.writeFileSync(filepath.join('dist', path), optimized.data, 'utf8')
 
 			el.removeAttribute('src')
 			const attrs = el.attributes as {

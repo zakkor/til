@@ -13,7 +13,7 @@ function d() {
 	document.querySelectorAll('a[href]').forEach(function(e) { e.onclick = g })
 }
 function g(e) {
-	var t = e.target.closest('a[href]')
+	var t = e.target && e.target.closest('a[href]')
 	var p = typeof e == 'object' ? t.getAttribute('href') : e
 	if (!(p in r)) {
 		console.error('route does not exist:', p)
