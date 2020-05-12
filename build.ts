@@ -110,9 +110,13 @@ async function processImages(pages: HTMLFile[]) {
 			if (path[0] === '/') {
 				path = path.slice(1)
 			}
+
+			const removeExtension = (path: string) => {
+				return path.slice(0, path.length - extension.length)
+			}
+
 			const dirname = filepath.join('dist', filepath.dirname(path)) // is like "dist/assets/images"
-			const outpath = filepath.join('dist', path) // is like "dist/assets/images/cat.png"
-			const pathnoext = path.slice(0, path.length - extension.length) // is like "assets/images/cat"
+			const pathnoext = removeExtension(path) // is like "assets/images/cat"
 			const pathwebp = pathnoext + '.webp' // is like "assets/images/cat.webp"
 			const outpathwebp = filepath.join('dist', pathwebp) // is like "dist/assets/images/cat.webp"
 			const srcwebp = '/' + pathwebp // is like "/assets/images/cat.webp"
@@ -123,17 +127,20 @@ async function processImages(pages: HTMLFile[]) {
 
 			// Always copy original file
 			fs.copyFileSync(path, filepath.join('dist', path))
+			await sharp(path)
+				.toFile(outpathwebp)
 			const mediaQueries = await writeResponsiveImages(path)
 
-			// // Convert to webp
-			// sharp(origoutpath)
-			// 	.toFile(outpathwebp)
-			// 	.then(() => {
-			// 		console.log('resized')
-			// 	})
-			console.log(mediaQueries);
-
 			let picture = '<picture>'
+			for (const mq of mediaQueries) {
+				// Convert to webp
+				const srcwebp = removeExtension(mq.path)+'.webp'
+				const resppathwebp = filepath.join('dist', srcwebp)
+				await sharp(filepath.join('dist', mq.path))
+					.toFile(resppathwebp)
+				picture += `<source type="image/webp" media="${mq.query}" srcset="/${srcwebp}">`
+			}
+			picture += `<source type="image/webp" srcset="${srcwebp}">`
 			for (const mq of mediaQueries) {
 				picture += `<source type="${imageType}" media="${mq.query}" srcset="/${mq.path}">`
 			}
@@ -186,7 +193,6 @@ async function writeResponsiveImages(path: string): Promise<MediaQuery[]> {
 		assigned[a] = bp.size * resizePercentage
 		a++
 	}
-	console.log('assigned:', assigned)
 
 	let mediaQueries: MediaQuery[] = []
 	let alreadyResized: number[] = [width]
