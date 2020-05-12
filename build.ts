@@ -2,8 +2,10 @@ import fs from 'fs'
 import filepath from 'path'
 import htmlMinifier from 'html-minifier'
 import uglifyJS from 'uglify-js'
-import imagemin from 'imagemin'
-import imageminWebp from 'imagemin-webp'
+
+import sharp from 'sharp'
+// import imagemin from 'imagemin'
+// import imageminWebp from 'imagemin-webp'
 
 import nodeHTMLParser, { Node as HTMLNode, HTMLElement } from 'node-html-parser'
 import cssTree, { CssNode as CSSNode } from 'css-tree'
@@ -96,11 +98,17 @@ function processImages(pages: HTMLFile[]) {
 				return
 			}
 
+			// "assets/images/cat.png"
 			let path = src
 			if (path[0] === '/') {
 				path = path.slice(1)
 			}
-
+			const dirname = filepath.join('dist', filepath.dirname(path)) // "dist/assets/images"
+			// const outpath = filepath.join('dist', path) // "dist/assets/images/cat.png"
+			const pathnoext = path.slice(0, path.length - extension.length) // "assets/images/cat"
+			const pathwebp = pathnoext + '.webp' // "assets/images/cat.webp"
+			// const outpathwebp = filepath.join('dist', pathwebp) // "dist/assets/images/cat.webp"
+			const srcwebp = '/' + pathwebp // "/assets/images/cat.webp"
 
 			// Responsive optimizations:
 			// Breakpoints:
@@ -108,6 +116,10 @@ function processImages(pages: HTMLFile[]) {
 			// (min-width: 768px)
 			// (min-width: 1024px)
 			// (min-width: 1280px)
+			// image: 1500x500
+			// 4x = 1500x500
+			// 3x = 1125x375
+			// ...
 			// For every breakpoint that applies, create a new size for the image, and include it in the srcset, for that breakpoint
 			//
 			// HiDPI optimizations: for every size of an image (including downscales), also serve a 2x, and possibly 3x size
@@ -117,23 +129,25 @@ function processImages(pages: HTMLFile[]) {
 			// For fixed width images (autodetected based on styles and attributes), we should perform only the hidpi optimizations
 
 			// create output dir
-			const dirname = filepath.join('dist', filepath.dirname(path))
 			fs.mkdirSync(dirname, { recursive: true })
-			// convert to webp and write to file
-			imagemin([path], {
-				destination: dirname,
-				plugins: [imageminWebp({
-					lossless: true // Losslessly encode images
-				})]
-			})
-			const srcwebp = src.slice(0, src.length - extension.length) + '.webp'
-			// copy original image
-			fs.copyFileSync(path, filepath.join(dirname, filepath.basename(path)))
+
+			writeResponsiveImages(path, () => {})
+
+			// resizedPaths[0] is the original image (biggest)
+
+
+			// // Convert to webp
+			// sharp(origoutpath)
+			// 	.toFile(outpathwebp)
+			// 	.then(() => {
+			// 		console.log('resized')
+			// 	})
+
 
 			// <source media="(max-width: 799px)" srcset="/assets/images/varanghelia50p.jpg">
 			const pictureNode = nodeHTMLParser(`<picture>
-				<source srcset="${srcwebp}">
-				<source srcset="${src}">
+				<source type="image/webp" srcset="${srcwebp}">
+				<source type="image/${extension.slice(1)}" srcset="${src}">
 				<img src="${src}">
 			</picture>`)
 			const parent = el.parentNode as HTMLElement
@@ -142,6 +156,73 @@ function processImages(pages: HTMLFile[]) {
 	}
 }
 
+function writeResponsiveImages(path: string, fn: (mediaQueries: {}) => void): void {
+	const breakpoints = [
+		{ name: 'sm', size: 640 },
+		{ name: 'md', size: 768 },
+		{ name: 'lg', size: 1024 },
+		{ name: 'xl', size: 1280 },
+	]
+	// Percentage of BP to resize to.
+	// If we are on a 640px wide screen, we would serve a (640 * 0.75) pixels wide image.
+	const resizePercentage = 0.75
+
+	// Always copy original file
+	fs.copyFileSync(path, filepath.join('dist', path))
+
+	sharp(path)
+		.metadata()
+		.then(({ width }) => {
+			if (width === undefined) {
+				return
+			}
+
+			let assigned: (number | null)[] = [
+				null,
+				null,
+				null,
+				null,
+			]
+
+			let a = 0
+			for (const bp of breakpoints) {
+				if (width < bp.size) {
+					break
+				}
+
+				assigned[a] = bp.size * resizePercentage
+				a++
+			}
+
+			console.log('assigned:', assigned)
+
+			let alreadyResized: number[] = [width]
+			for (let i = 0; i < assigned.length; i++) {
+				const size = assigned[i]
+				if (size === null) {
+					continue
+				}
+				if (alreadyResized.includes(size)) {
+					continue
+				}
+
+				const bp = breakpoints[i].name
+				sharp(path)
+					.resize(size)
+					.toFile(filepath.join('dist', resizedImagePath(path, bp)))
+
+				alreadyResized.push(size)
+			}
+
+			fn()
+		})
+}
+
+function resizedImagePath(path: string, bp: string): string {
+	const extension = path.substring(path.lastIndexOf('.'), path.length)
+	const pathnoext = path.slice(0, path.length - extension.length)
+	return pathnoext + '_' + bp + extension
+}
 
 function processPages(pages: HTMLFile[], styles: CSSFile[], cfg: Config) {
 	// Use `rip` to process HTML and CSS
