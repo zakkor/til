@@ -3,6 +3,7 @@ import filepath from 'path'
 import htmlMinifier from 'html-minifier'
 import uglifyJS from 'uglify-js'
 import sharp from 'sharp'
+import SVGO from 'svgo'
 import nodeHTMLParser, { Node as HTMLNode, HTMLElement } from 'node-html-parser'
 import cssTree, { CssNode as CSSNode } from 'css-tree'
 
@@ -54,6 +55,10 @@ async function build({ prod, configPath }: Options) {
 
 	await taskv('images', async () => {
 		await processImages(parsed.pages)
+	})
+
+	await taskv('svgs', async () => {
+		await processSVGs(parsed.pages)
 	})
 
 	await taskv('pages', async () => {
@@ -150,6 +155,117 @@ async function processImages(pages: HTMLFile[]) {
 			const pictureNode = nodeHTMLParser(picture)
 			const parent = el.parentNode as HTMLElement
 			parent.exchangeChild(el, pictureNode)
+		})
+	}
+}
+
+async function processSVGs(pages: HTMLFile[]) {
+	for (const page of pages) {
+		await walkHTML(page.root, async (el: HTMLElement) => {
+			if (el.tagName != 'img') {
+				return
+			}
+			if (!('src' in el.attributes)) {
+				return
+			}
+			const src = el.attributes.src
+			const extension = src.substring(src.lastIndexOf('.'), src.length)
+			if (extension != '.svg') {
+				return
+			}
+
+			// is like "assets/images/icon.svg"
+			let path = src
+			if (path[0] === '/') {
+				path = path.slice(1)
+			}
+
+			const svg = fs.readFileSync(path, 'utf8')
+			const svgo = new SVGO({
+        plugins: [{
+          cleanupAttrs: true,
+        }, {
+          removeDoctype: true,
+        },{
+          removeXMLProcInst: true,
+        },{
+          removeComments: true,
+        },{
+          removeMetadata: true,
+        },{
+          removeTitle: true,
+        },{
+          removeDesc: true,
+        },{
+          removeUselessDefs: true,
+        },{
+          removeEditorsNSData: true,
+        },{
+          removeEmptyAttrs: true,
+        },{
+          removeHiddenElems: true,
+        },{
+          removeEmptyText: true,
+        },{
+          removeEmptyContainers: true,
+        },{
+          removeViewBox: false,
+        },{
+          cleanupEnableBackground: true,
+        },{
+          convertStyleToAttrs: true,
+        },{
+          convertColors: true,
+        },{
+          convertPathData: true,
+        },{
+          convertTransform: true,
+        },{
+          removeUnknownsAndDefaults: true,
+        },{
+          removeNonInheritableGroupAttrs: true,
+        },{
+          removeUselessStrokeAndFill: true,
+        },{
+          removeUnusedNS: true,
+        },{
+          cleanupIDs: true,
+        },{
+          cleanupNumericValues: true,
+        },{
+          moveElemsAttrsToGroup: true,
+        },{
+          moveGroupAttrsToElems: true,
+        },{
+          collapseGroups: true,
+        },{
+          removeRasterImages: false,
+        },{
+          mergePaths: true,
+        },{
+          convertShapeToPath: true,
+        },{
+          sortAttrs: true,
+        },{
+          removeDimensions: true,
+        },{
+          removeAttrs: {attrs: '(stroke|fill)'},
+        }]
+			})
+			const optimized = await svgo.optimize(svg)
+
+			el.removeAttribute('src')
+			const attrs = el.attributes as {
+				[key: string]: string;
+			}
+			
+			const svgEl = (nodeHTMLParser(optimized.data) as HTMLElement).firstChild as HTMLElement
+			for (const [k, v] of Object.entries(attrs)) {
+				svgEl.setAttribute(k, v)
+			}
+			
+			const parent = el.parentNode as HTMLElement
+			parent.exchangeChild(el, svgEl)
 		})
 	}
 }
