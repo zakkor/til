@@ -202,7 +202,9 @@ async function processSVGs(pages: HTMLFile[], cfg: Config) {
 				path = path.slice(1)
 			}
 
-			const svg = fs.readFileSync(path, 'utf8')
+			console.log(path);
+			
+			let svg = fs.readFileSync(path, 'utf8')
 			const svgo = new SVGO({
 				plugins: [{ removeDoctype: true }, { removeXMLProcInst: true },
 				{ removeComments: true }, { removeMetadata: true },
@@ -222,16 +224,29 @@ async function processSVGs(pages: HTMLFile[], cfg: Config) {
 				{ sortAttrs: true }, { removeDimensions: true },
 				{ removeAttrs: { attrs: '(stroke|fill)' } }, { cleanupAttrs: true }]
 			})
-			const optimized = await svgo.optimize(svg)
+
+			if (cfg.svgs.optimize) {
+				const optimized = await svgo.optimize(svg)
+				svg = optimized.data
+			}
+
+			const dirname = filepath.join('dist', filepath.dirname(path)) // is like "dist/assets/images"
+			// Create output dir
+			fs.mkdirSync(dirname, { recursive: true })
+			
 			// Write file too, it may be used by CSS.
-			fs.writeFileSync(filepath.join('dist', path), optimized.data, 'utf8')
+			fs.writeFileSync(filepath.join('dist', path), svg, 'utf8')
+
+			if (!cfg.svgs.inline) {
+				return
+			}
 
 			el.removeAttribute('src')
 			const attrs = el.attributes as {
 				[key: string]: string;
 			}
 
-			const svgEl = (nodeHTMLParser(optimized.data) as HTMLElement).firstChild as HTMLElement
+			const svgEl = (nodeHTMLParser(svg) as HTMLElement).firstChild as HTMLElement
 			for (const [k, v] of Object.entries(attrs)) {
 				svgEl.setAttribute(k, v)
 			}
