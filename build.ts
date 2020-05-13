@@ -168,7 +168,7 @@ async function processImages(pages: HTMLFile[], cfg: Config) {
 					picture += `<source type="${imageType}" media="${mq.query}" srcset="/${mq.path}">`
 				}
 			}
-			picture += `<img src="${src}">`
+			picture += `<img loading="lazy" src="${src}">`
 			picture += '</picture>'
 
 			// TODO: copy attributes like in SVGs case if needed
@@ -202,8 +202,6 @@ async function processSVGs(pages: HTMLFile[], cfg: Config) {
 				path = path.slice(1)
 			}
 
-			console.log(path);
-			
 			let svg = fs.readFileSync(path, 'utf8')
 			const svgo = new SVGO({
 				plugins: [{ removeDoctype: true }, { removeXMLProcInst: true },
