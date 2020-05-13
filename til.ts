@@ -26,9 +26,9 @@ if (process.argv.includes('dev')) {
 	})
 
 	// Initial build
-	// TODO: await
-	build(false)
-	bs.reload(['*.html'])
+	build(false).then(() => {
+		bs.reload(['*.html'])
+	})
 
 	til.watch(async file => {
 		// Development build

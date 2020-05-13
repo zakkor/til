@@ -54,11 +54,15 @@ async function build({ prod, configPath }: Options) {
 	})
 
 	await taskv('images', async () => {
-		await processImages(parsed.pages)
+		await processImages(parsed.pages, cfg)
 	})
 
 	await taskv('svgs', async () => {
-		await processSVGs(parsed.pages)
+		await processSVGs(parsed.pages, cfg)
+	})
+
+	await taskv('fonts', async () => {
+		await processFonts(parsed.pages)
 	})
 
 	await taskv('pages', async () => {
@@ -94,7 +98,7 @@ function parseFiles(pages: File[], styles: File[]): { pages: HTMLFile[], styles:
 	return parsed
 }
 
-async function processImages(pages: HTMLFile[]) {
+async function processImages(pages: HTMLFile[], cfg: Config) {
 	const acceptedExtensions = ['.jpg', '.png']
 	for (const page of pages) {
 		await walkHTML(page.root, async (el: HTMLElement) => {
@@ -132,34 +136,52 @@ async function processImages(pages: HTMLFile[]) {
 
 			// Always copy original file
 			fs.copyFileSync(path, filepath.join('dist', path))
-			await sharp(path)
-				.toFile(outpathwebp)
-			const mediaQueries = await writeResponsiveImages(path)
+
+			let mediaQueries: MediaQuery[] | null = null
+			if (cfg.images.responsive) {
+				mediaQueries = await writeResponsiveImages(path)
+			}
 
 			let picture = '<picture>'
-			for (const mq of mediaQueries) {
-				// Convert to webp
-				const srcwebp = removeExtension(mq.path)+'.webp'
-				const resppathwebp = filepath.join('dist', srcwebp)
-				await sharp(filepath.join('dist', mq.path))
-					.toFile(resppathwebp)
-				picture += `<source type="image/webp" media="${mq.query}" srcset="/${srcwebp}">`
+			// Add webp <source> elements
+			if (cfg.images.webp) {
+				// Convert image to webp and write to file
+				await sharp(path)
+					.toFile(outpathwebp)
+
+				if (cfg.images.responsive && mediaQueries !== null) {
+					for (const mq of mediaQueries) {
+						// Convert to webp
+						const srcwebp = removeExtension(mq.path) + '.webp'
+						const resppathwebp = filepath.join('dist', srcwebp)
+						await sharp(filepath.join('dist', mq.path))
+							.toFile(resppathwebp)
+						picture += `<source type="image/webp" media="${mq.query}" srcset="/${srcwebp}">`
+					}
+				}
+
+				picture += `<source type="image/webp" srcset="${srcwebp}">`
 			}
-			picture += `<source type="image/webp" srcset="${srcwebp}">`
-			for (const mq of mediaQueries) {
-				picture += `<source type="${imageType}" media="${mq.query}" srcset="/${mq.path}">`
+			// Add default <source>
+			if (cfg.images.responsive && mediaQueries !== null) {
+				for (const mq of mediaQueries) {
+					picture += `<source type="${imageType}" media="${mq.query}" srcset="/${mq.path}">`
+				}
 			}
 			picture += `<img src="${src}">`
 			picture += '</picture>'
 
-			const pictureNode = nodeHTMLParser(picture)
-			const parent = el.parentNode as HTMLElement
-			parent.exchangeChild(el, pictureNode)
+			// TODO: copy attributes like in SVGs case if needed
+			if (cfg.images.responsive || cfg.images.webp) {
+				const pictureNode = nodeHTMLParser(picture)
+				const parent = el.parentNode as HTMLElement
+				parent.exchangeChild(el, pictureNode)
+			}
 		})
 	}
 }
 
-async function processSVGs(pages: HTMLFile[]) {
+async function processSVGs(pages: HTMLFile[], cfg: Config) {
 	for (const page of pages) {
 		await walkHTML(page.root, async (el: HTMLElement) => {
 			if (el.tagName != 'img') {
@@ -182,75 +204,23 @@ async function processSVGs(pages: HTMLFile[]) {
 
 			const svg = fs.readFileSync(path, 'utf8')
 			const svgo = new SVGO({
-        plugins: [{
-          cleanupAttrs: true,
-        }, {
-          removeDoctype: true,
-        },{
-          removeXMLProcInst: true,
-        },{
-          removeComments: true,
-        },{
-          removeMetadata: true,
-        },{
-          removeTitle: true,
-        },{
-          removeDesc: true,
-        },{
-          removeUselessDefs: true,
-        },{
-          removeEditorsNSData: true,
-        },{
-          removeEmptyAttrs: true,
-        },{
-          removeHiddenElems: true,
-        },{
-          removeEmptyText: true,
-        },{
-          removeEmptyContainers: true,
-        },{
-          removeViewBox: false,
-        },{
-          cleanupEnableBackground: true,
-        },{
-          convertStyleToAttrs: true,
-        },{
-          convertColors: true,
-        },{
-          convertPathData: true,
-        },{
-          convertTransform: true,
-        },{
-          removeUnknownsAndDefaults: true,
-        },{
-          removeNonInheritableGroupAttrs: true,
-        },{
-          removeUselessStrokeAndFill: true,
-        },{
-          removeUnusedNS: true,
-        },{
-          cleanupIDs: true,
-        },{
-          cleanupNumericValues: true,
-        },{
-          moveElemsAttrsToGroup: true,
-        },{
-          moveGroupAttrsToElems: true,
-        },{
-          collapseGroups: true,
-        },{
-          removeRasterImages: false,
-        },{
-          mergePaths: true,
-        },{
-          convertShapeToPath: true,
-        },{
-          sortAttrs: true,
-        },{
-          removeDimensions: true,
-        },{
-          removeAttrs: {attrs: '(stroke|fill)'},
-        }]
+				plugins: [{ removeDoctype: true }, { removeXMLProcInst: true },
+				{ removeComments: true }, { removeMetadata: true },
+				{ removeTitle: true }, { removeDesc: true },
+				{ removeUselessDefs: true }, { removeEditorsNSData: true },
+				{ removeEmptyAttrs: true }, { removeHiddenElems: true },
+				{ removeEmptyText: true }, { removeEmptyContainers: true },
+				{ removeViewBox: false }, { cleanupEnableBackground: true },
+				{ convertStyleToAttrs: true }, { convertColors: true },
+				{ convertPathData: true }, { convertTransform: true },
+				{ removeUnknownsAndDefaults: true }, { removeNonInheritableGroupAttrs: true },
+				{ removeUselessStrokeAndFill: true }, { removeUnusedNS: true },
+				{ cleanupIDs: true }, { cleanupNumericValues: true },
+				{ moveElemsAttrsToGroup: true }, { moveGroupAttrsToElems: true },
+				{ collapseGroups: true }, { removeRasterImages: false },
+				{ mergePaths: true }, { convertShapeToPath: true },
+				{ sortAttrs: true }, { removeDimensions: true },
+				{ removeAttrs: { attrs: '(stroke|fill)' } }, { cleanupAttrs: true }]
 			})
 			const optimized = await svgo.optimize(svg)
 			// Write file too, it may be used by CSS.
@@ -260,16 +230,21 @@ async function processSVGs(pages: HTMLFile[]) {
 			const attrs = el.attributes as {
 				[key: string]: string;
 			}
-			
+
 			const svgEl = (nodeHTMLParser(optimized.data) as HTMLElement).firstChild as HTMLElement
 			for (const [k, v] of Object.entries(attrs)) {
 				svgEl.setAttribute(k, v)
 			}
-			
+
 			const parent = el.parentNode as HTMLElement
 			parent.exchangeChild(el, svgEl)
 		})
 	}
+}
+
+async function processFonts(pages: HTMLFile[]) {
+	// for (const page of pages) {
+	// }
 }
 
 type MediaQuery = {
@@ -289,8 +264,8 @@ async function writeResponsiveImages(path: string): Promise<MediaQuery[]> {
 	const resizePercentage = 0.75
 
 	const { width } = await sharp(path)
-		.metadata();
-		
+		.metadata()
+
 	if (width === undefined) {
 		throw new Error('cannot detect image width')
 	}
@@ -325,12 +300,12 @@ async function writeResponsiveImages(path: string): Promise<MediaQuery[]> {
 
 		const bp = breakpoints[i]
 		const resizedPath = resizedImagePath(path, bp.name)
-		
+
 		await sharp(path)
 			.resize(size)
 			.toFile(filepath.join('dist', resizedPath))
 
-		mediaQueries.push({query: `(max-width: ${bp.size}px)`, path: resizedPath})
+		mediaQueries.push({ query: `(max-width: ${bp.size}px)`, path: resizedPath })
 		alreadyResized.push(size)
 	}
 
