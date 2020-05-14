@@ -2,7 +2,7 @@
 
 ## Installation
 
-`yarn global add @til-js/til`
+`yarn global add til`
 
 ## Usage
 

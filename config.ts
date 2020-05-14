@@ -7,16 +7,16 @@ export type Config = {
 	compress: CompressKinds
 	uglify: boolean
 	removeUnusedCSS: boolean
-	images: ImagesConfig
-	svgs: SVGsConfig
+	images: ImageConfig
+	svgs: SVGConfig
 }
 
-type ImagesConfig = {
+type ImageConfig = {
 	webp: boolean
 	responsive: boolean
 }
 
-type SVGsConfig = {
+type SVGConfig = {
 	optimize: boolean
 	inline: boolean
 }

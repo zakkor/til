@@ -1,7 +1,8 @@
 {
-	"name": "@til-js/til",
-	"version": "0.0.1",
+	"name": "til",
+	"version": "1.0.0",
 	"scripts": {
+		"build": "build",
 		"test": "jest"
 	},
 	"bin": {

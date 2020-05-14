@@ -1,4 +1,5 @@
 import fs from 'fs'
+import util from 'util'
 import filepath from 'path'
 import htmlMinifier from 'html-minifier'
 import uglifyJS from 'uglify-js'
@@ -7,7 +8,7 @@ import SVGO from 'svgo'
 import nodeHTMLParser, { Node as HTMLNode, HTMLElement } from 'node-html-parser'
 import cssTree, { CssNode as CSSNode } from 'css-tree'
 
-import { watch, File, collectFiles, writeFile, walktop } from './fs'
+import { watch, File, collect, collectFiles, writeFile, walktop } from './fs'
 import { Config, readConfig, CompressKinds } from './config'
 import { rip } from './rip'
 
@@ -62,7 +63,7 @@ async function build({ prod, configPath }: Options) {
 	})
 
 	await taskv('fonts', async () => {
-		await processFonts(parsed.pages)
+		await processFonts()
 	})
 
 	await taskv('pages', async () => {
@@ -255,9 +256,21 @@ async function processSVGs(pages: HTMLFile[], cfg: Config) {
 	}
 }
 
-async function processFonts(pages: HTMLFile[]) {
-	// for (const page of pages) {
-	// }
+async function processFonts() {
+	const copyFile = util.promisify(fs.copyFile)
+	const mkdir = util.promisify(fs.mkdir)
+
+	const fonts = collect(['./assets/fonts'], ['.woff2', '.woff', '.ttf'])
+	const outdir = filepath.join('dist', 'assets', 'fonts')
+
+	let pxs: Promise<void>[] = []
+	const pr = mkdir(outdir)
+	pxs.push(pr)
+	for (const f of fonts) {
+		const pr = copyFile(f, filepath.join('dist', f))
+		pxs.push(pr)
+	}
+	await Promise.all(pxs)
 }
 
 type MediaQuery = {

@@ -39,7 +39,7 @@ export function collectFiles(paths: string[], extensions: string[]): File[] {
 	return collect(paths, extensions).map(f => { return { path: f, data: fs.readFileSync(f, 'utf8') } })
 }
 
-function collect(paths: string[], extensions: string[]): string[] {
+export function collect(paths: string[], extensions: string[]): string[] {
 	let files: string[] = []
 	for (const path of paths) {
 		walk(path, (path: string, isDir: boolean) => {
