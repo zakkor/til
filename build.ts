@@ -43,7 +43,6 @@ async function build({ prod, configPath }: Options) {
 
 	let pages = collectFiles(['./pages'], ['.html'])
 	let styles = collectFiles(['./pages', './styles'], ['.css'])
-	let scripts = collectFiles(['./pages'], ['.js'])
 
 	resetOutputDir()
 
@@ -70,7 +69,7 @@ async function build({ prod, configPath }: Options) {
 		await processPages(parsed.pages, parsed.styles, cfg)
 	})
 
-	await taskv('scripts', () => processScripts(scripts, prod, cfg.compress))
+	await taskv('scripts', () => processScripts(prod, cfg.compress))
 }
 
 // Go through each component and substitute in pages
@@ -86,7 +85,7 @@ function processComponents(pages: File[]): void {
 }
 
 function parseFiles(pages: File[], styles: File[]): { pages: HTMLFile[], styles: CSSFile[] } {
-	let parsed = {
+	return {
 		pages: pages.map(page => {
 			const root = nodeHTMLParser(page.data, { script: true, style: true })
 			return { file: page, root }
@@ -96,7 +95,6 @@ function parseFiles(pages: File[], styles: File[]): { pages: HTMLFile[], styles:
 			return { file: css, root: cssTree.parse(css.data) }
 		}),
 	}
-	return parsed
 }
 
 async function processImages(pages: HTMLFile[], cfg: Config) {
@@ -406,7 +404,9 @@ function prepareRoutes(pages: HTMLFile[]): Routes {
 	return routes
 }
 
-function processScripts(scripts: File[], prod: boolean, compress: CompressKinds): void {
+function processScripts(prod: boolean, compress: CompressKinds): void {
+	const scripts = collectFiles(['./pages'], ['.js'])
+
 	// Uglify JS, concat, and write to bundle.js.
 	if (prod) {
 		for (const f of scripts) {
