@@ -6,6 +6,8 @@ import uglifyJS from 'uglify-js'
 import ttf2woff2 from 'ttf2woff2'
 // @ts-ignore
 import ttf2woff from 'ttf2woff'
+// @ts-ignore
+import ttf2eot from 'ttf2eot'
 import sharp from 'sharp'
 import SVGO from 'svgo'
 import nodeHTMLParser, { Node as HTMLNode, HTMLElement } from 'node-html-parser'
@@ -51,6 +53,10 @@ async function build({ prod, configPath }: Options) {
 
 	await taskv('components', () => processComponents(pages))
 
+	await taskv('fonts', async () => {
+		await processFonts(pages)
+	})
+
 	let parsed: { pages: HTMLFile[], styles: CSSFile[] }
 	await taskv('parsing', () => {
 		parsed = parseFiles(pages, styles)
@@ -62,10 +68,6 @@ async function build({ prod, configPath }: Options) {
 
 	await taskv('svgs', async () => {
 		await processSVGs(parsed.pages, cfg)
-	})
-
-	await taskv('fonts', async () => {
-		await processFonts()
 	})
 
 	await taskv('pages', async () => {
@@ -262,7 +264,61 @@ const readFile = util.promisify(fs.readFile)
 const writeFile = util.promisify(fs.writeFile)
 const mkdir = util.promisify(fs.mkdir)
 
-async function processFonts() {
+class Font {
+	family: string // "Roboto"
+	style: string | undefined // "italic"
+	weight: string | undefined // "400"
+	formats: FontFormat[]
+
+	constructor(family: string) {
+		this.family = family
+		this.formats = []
+	}
+
+	addFormat(name: FontFormatName, path: string) {
+		let cssName: FontFormatCSSName
+		switch (name) {
+			case "ttf":
+				cssName = "truetype"
+				break
+			case "woff":
+				cssName = "woff"
+				break
+			case "woff2":
+				cssName = "woff2"
+				break
+			case "eot":
+				cssName = "embedded-opentype"
+				break
+		}
+		this.formats.push({
+			name,
+			cssName,
+			path,
+		})
+	}
+
+	getFormat(name: FontFormatName): FontFormat | undefined {
+		for (const fmt of this.formats) {
+			if (fmt.name === name) {
+				return fmt
+			}
+		}
+		return undefined
+	}
+}
+
+type FontFormat = {
+	name: FontFormatName // "ttf"
+	cssName: FontFormatCSSName // "truetype"
+	path: string // "assets/fonts/Roboto/normal-400.ttf"
+}
+
+type FontFormatName = "ttf" | "woff" | "woff2" | "eot"
+type FontFormatCSSName = "truetype" | "woff" | "woff2" | "embedded-opentype"
+
+async function processFonts(pages: File[]) {
+	// TODO: refactor: `fontExtensions` and `requiredTypes` should be the same (no leading ".")
 	const fontExtensions = ['.ttf', '.woff', '.woff2', '.eot']
 
 	const isFont = (path: string) => {
@@ -271,6 +327,8 @@ async function processFonts() {
 
 	await mkdir(filepath.join('dist', 'assets', 'fonts'), { recursive: true })
 	let pxs: Promise<void>[] = []
+	const fonts: Font[] = []
+
 	await walktop('assets/fonts', async (path, isDir) => {
 		// If there is a font file directly at the top level of the fonts folder, 
 		// copy it directly, bypassing the rest of the process.
@@ -284,7 +342,8 @@ async function processFonts() {
 
 		await mkdir(filepath.join('dist', path))
 		const family = filepath.basename(path)
-		const fonts: { [index:string]: string[] } = {}
+		// TODO: refactor: get rid of `fontFormats` and use only `fonts`
+		const fontFormats: { [index:string]: string[] } = {}
 
 		walktopSync(path, (path, isDir) => {
 			if (isDir) {
@@ -294,21 +353,32 @@ async function processFonts() {
 			const parts = filepath.basename(path).split('.')
 			const name = parts[0]
 			const ext = parts[1]
-			// const words = name.split('-')
-			// const style = words[0]
-			// const weight = words[1]
-			if (!(name in fonts)) {
-				fonts[name] = []
+
+			if (!(name in fontFormats)) {
+				fontFormats[name] = []
 			}
-			fonts[name].push(ext)
+			fontFormats[name].push(ext)
 
 			// copy to dist
-			pxs.push(copyFile(path, filepath.join('dist', path)))
+			const outpath = filepath.join('dist', path)
+			pxs.push(copyFile(path, outpath))
 		})
 
 		const requiredTypes = fontExtensions.map(e => e.slice(1)) // remove leading "."
 
-		for (const [name, types] of Object.entries(fonts)) {
+		for (const [name, types] of Object.entries(fontFormats)) {
+			let font = new Font(family)
+			const words = name.split('-')
+			const style = words[0]
+			const weight = words[1]
+			font.style = style
+			font.weight = weight
+			const outpath = filepath.join('dist', path, name)
+			for (const t of types) {
+				font.addFormat(t as FontFormatName, outpath+'.'+t)
+			}
+			fonts.push(font)
+			
 			const haveTTF = types.includes('ttf')
 			// If we don't have the .ttf file, we can't convert to other formats
 			if (!haveTTF) {
@@ -322,21 +392,84 @@ async function processFonts() {
 				case 'woff2':
 					console.log('producing woff2 for:', family, name)
 					const woff2buf = ttf2woff2(ttfbuf)
-					const outpathwoff2 = filepath.join('dist', path, name) + '.woff2'
-					pxs.push(writeFile(outpathwoff2, woff2buf))
+					pxs.push(writeFile(outpath+'.woff2', woff2buf))
 					break
 				case 'woff':
 					console.log('producing woff for:', family, name)
 					const woffbuf = ttf2woff(ttfbuf).buffer
-					const outpathwoff = filepath.join('dist', path, name) + '.woff'
-					pxs.push(writeFile(outpathwoff, woffbuf))
+					pxs.push(writeFile(outpath+'.woff', woffbuf))
+					break
+				case 'eot':
+					console.log('producing eot for:', family, name)
+					const eotbuf = ttf2eot(ttfbuf).buffer
+					pxs.push(writeFile(outpath+'.eot', eotbuf))
 					break
 				}
+				font.addFormat(n as FontFormatName, outpath+'.'+n)
 			}
 		}
 	})
 
 	await Promise.all(pxs)
+
+	let preloads = ''
+
+	const fontFaces = fonts.map(f => {
+		let fontFace = `@font-face {
+			font-family: '${f.family}';
+			font-style: ${f.style};
+			font-weight: ${f.weight};
+			font-display: swap;\n`
+
+		// TODO: refactor: this mess
+		let first = false
+		const fmteot = f.getFormat('eot')
+		if (fmteot) {
+			fontFace += `src: url('/${removeFirstDir(fmteot.path)}');
+			src: url('/${removeFirstDir(fmteot.path)}?#iefix') format('embedded-opentype');`
+			first = true
+		}
+		const fmtwoff2 = f.getFormat('woff2')
+		if (fmtwoff2) {
+			preloads += `<link rel="preload" href="/${removeFirstDir(fmtwoff2.path)}" as="font" type="font/woff2">\n`
+			if (fontFace[fontFace.length-1] === ';') {
+				fontFace = fontFace.slice(0, -1) + ',\n'
+			}
+			if (!first) {
+				fontFace += 'src: '
+			}
+			first = true
+			fontFace += `url('/${removeFirstDir(fmtwoff2.path)}') format('woff2');`
+		}
+		const fmtwoff = f.getFormat('woff')
+		if (fmtwoff) {
+			if (fontFace[fontFace.length-1] === ';') {
+				fontFace = fontFace.slice(0, -1) + ',\n'
+			}
+			if (!first) {
+				fontFace += 'src: '
+			}
+			first = true
+			fontFace += `url('/${removeFirstDir(fmtwoff.path)}') format('woff');`
+		}
+		const fmtttf = f.getFormat('ttf')
+		if (fmtttf) {
+			if (fontFace[fontFace.length-1] === ';') {
+				fontFace = fontFace.slice(0, -1) + ',\n'
+			}
+			if (!first) {
+				fontFace += 'src: '
+			}
+			first = true
+			fontFace += `url('/${removeFirstDir(fmtttf.path)})') format('truetype');\n`
+		}
+		fontFace += '}'
+		return fontFace
+	}).join('\n')
+
+	for (const page of pages) {
+		page.data = page.data.replace('<head>', `<head>${preloads}<style>${fontFaces}</style>`)
+	}
 }
 
 type MediaQuery = {
