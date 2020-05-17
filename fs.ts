@@ -11,6 +11,7 @@ export type File = {
 type WatchFn = (path: string) => void
 
 type WalkFn = (path: string, isDir: boolean) => void
+type AsyncWalkFn = (path: string, isDir: boolean) => Promise<void>
 
 export function watch(fn: WatchFn) {
 	const watcher = (file: string) => {
@@ -91,7 +92,7 @@ export function walk(path: string, fn: WalkFn): void {
 	dir.closeSync()
 }
 
-export function walktop(path: string, fn: WalkFn): void {
+export function walktopSync(path: string, fn: WalkFn): void {
 	const dir = fs.opendirSync(path)
 	let dirent = null
 	while (dirent = dir.readSync()) {
@@ -105,7 +106,21 @@ export function walktop(path: string, fn: WalkFn): void {
 	dir.closeSync()
 }
 
-export function writeFile(path: string, data: string, compress: CompressKinds): void {
+export async function walktop(path: string, fn: AsyncWalkFn): Promise<void> {
+	const dir = fs.opendirSync(path)
+	let dirent = null
+	while (dirent = dir.readSync()) {
+		if (dirent === null) {
+			break
+		}
+
+		const full = filepath.join(path, dirent.name)
+		await fn(full, dirent.isDirectory())
+	}
+	dir.closeSync()
+}
+
+export function writeFileCompressed(path: string, data: string, compress: CompressKinds): void {
 	if (compress === 'brotli') {
 		fs.writeFileSync(`${path}.br`, zlib.brotliCompressSync(data))
 		return

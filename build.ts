@@ -3,12 +3,15 @@ import util from 'util'
 import filepath from 'path'
 import htmlMinifier from 'html-minifier'
 import uglifyJS from 'uglify-js'
+import ttf2woff2 from 'ttf2woff2'
+// @ts-ignore
+import ttf2woff from 'ttf2woff'
 import sharp from 'sharp'
 import SVGO from 'svgo'
 import nodeHTMLParser, { Node as HTMLNode, HTMLElement } from 'node-html-parser'
 import cssTree, { CssNode as CSSNode } from 'css-tree'
 
-import { watch, File, collect, collectFiles, writeFile, walktop } from './fs'
+import { watch, File, collect, collectFiles, writeFileCompressed, walktop, walktopSync } from './fs'
 import { Config, readConfig, CompressKinds } from './config'
 import { rip } from './rip'
 
@@ -254,20 +257,85 @@ async function processSVGs(pages: HTMLFile[], cfg: Config) {
 	}
 }
 
+const copyFile = util.promisify(fs.copyFile)
+const readFile = util.promisify(fs.readFile)
+const writeFile = util.promisify(fs.writeFile)
+const mkdir = util.promisify(fs.mkdir)
+
 async function processFonts() {
-	const copyFile = util.promisify(fs.copyFile)
-	const mkdir = util.promisify(fs.mkdir)
+	const fontExtensions = ['.ttf', '.woff', '.woff2', '.eot']
 
-	const fonts = collect(['./assets/fonts'], ['.woff2', '.woff', '.ttf'])
-	const outdir = filepath.join('dist', 'assets', 'fonts')
-
-	let pxs: Promise<void>[] = []
-	const pr = mkdir(outdir)
-	pxs.push(pr)
-	for (const f of fonts) {
-		const pr = copyFile(f, filepath.join('dist', f))
-		pxs.push(pr)
+	const isFont = (path: string) => {
+		return fontExtensions.includes(filepath.extname(path))
 	}
+
+	await mkdir(filepath.join('dist', 'assets', 'fonts'), { recursive: true })
+	let pxs: Promise<void>[] = []
+	await walktop('assets/fonts', async (path, isDir) => {
+		// If there is a font file directly at the top level of the fonts folder, 
+		// copy it directly, bypassing the rest of the process.
+		if (!isDir) {
+			if (isFont(path)) {
+				pxs.push(copyFile(path, filepath.join('dist', path)))
+			}
+
+			return
+		}
+
+		await mkdir(filepath.join('dist', path))
+		const family = filepath.basename(path)
+		const fonts: { [index:string]: string[] } = {}
+
+		walktopSync(path, (path, isDir) => {
+			if (isDir) {
+				return
+			}
+			
+			const parts = filepath.basename(path).split('.')
+			const name = parts[0]
+			const ext = parts[1]
+			// const words = name.split('-')
+			// const style = words[0]
+			// const weight = words[1]
+			if (!(name in fonts)) {
+				fonts[name] = []
+			}
+			fonts[name].push(ext)
+
+			// copy to dist
+			pxs.push(copyFile(path, filepath.join('dist', path)))
+		})
+
+		const requiredTypes = fontExtensions.map(e => e.slice(1)) // remove leading "."
+
+		for (const [name, types] of Object.entries(fonts)) {
+			const haveTTF = types.includes('ttf')
+			// If we don't have the .ttf file, we can't convert to other formats
+			if (!haveTTF) {
+				continue
+			}
+			const ttfPath = filepath.join(path, name) + '.ttf'
+			const ttfbuf = await readFile(ttfPath)
+			const needed = requiredTypes.filter(rt => !types.includes(rt))
+			for (const n of needed) {
+				switch (n) {
+				case 'woff2':
+					console.log('producing woff2 for:', family, name)
+					const woff2buf = ttf2woff2(ttfbuf)
+					const outpathwoff2 = filepath.join('dist', path, name) + '.woff2'
+					pxs.push(writeFile(outpathwoff2, woff2buf))
+					break
+				case 'woff':
+					console.log('producing woff for:', family, name)
+					const woffbuf = ttf2woff(ttfbuf).buffer
+					const outpathwoff = filepath.join('dist', path, name) + '.woff'
+					pxs.push(writeFile(outpathwoff, woffbuf))
+					break
+				}
+			}
+		}
+	})
+
 	await Promise.all(pxs)
 }
 
@@ -369,7 +437,7 @@ async function processPages(pages: HTMLFile[], styles: CSSFile[], cfg: Config) {
 		// Create dir
 		fs.mkdirSync(outdir, { recursive: true })
 		// Write HTML to file
-		writeFile(outpath, page.file.data, cfg.compress)
+		writeFileCompressed(outpath, page.file.data, cfg.compress)
 	}
 }
 
@@ -388,7 +456,7 @@ function prepareNavigation(pages: HTMLFile[], uglify: boolean, compress: Compres
 		const routesJSON = JSON.stringify(pageRoutes)
 
 		fs.mkdirSync(`./dist/_til/nav/${pathToRoute(page.file.path)}`, { recursive: true })
-		writeFile(`./dist/_til/nav/${pathToRoute(page.file.path)}/routes.json`, routesJSON, compress)
+		writeFileCompressed(`./dist/_til/nav/${pathToRoute(page.file.path)}/routes.json`, routesJSON, compress)
 
 		// Add navigation
 		page.file.data = page.file.data.replace('</body>', `<script>${navigation}</script></body>`)
@@ -415,7 +483,7 @@ function processScripts(prod: boolean, compress: CompressKinds): void {
 	}
 	const jsBundle = concatFiles(scripts)
 	if (jsBundle !== '') {
-		writeFile('./dist/bundle.js', jsBundle, compress)
+		writeFileCompressed('./dist/bundle.js', jsBundle, compress)
 	}
 }
 
@@ -459,7 +527,7 @@ function resetOutputDir() {
 	// Make sure "dist" dir exists
 	fs.mkdirSync('./dist', { recursive: true })
 	// Remove each item in "dist" dir
-	walktop('./dist', (path, isDir) => {
+	walktopSync('./dist', (path, isDir) => {
 		if (isDir) {
 			fs.rmdirSync(path, { recursive: true })
 			return
