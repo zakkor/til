@@ -107,7 +107,13 @@ export function walktopSync(path: string, fn: WalkFn): void {
 }
 
 export async function walktop(path: string, fn: AsyncWalkFn): Promise<void> {
-	const dir = fs.opendirSync(path)
+	let dir: fs.Dir
+	try {
+		dir = fs.opendirSync(path)
+	} catch {
+		return
+	}
+	
 	let dirent = null
 	while (dirent = dir.readSync()) {
 		if (dirent === null) {

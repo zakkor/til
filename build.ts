@@ -298,6 +298,53 @@ class Font {
 		})
 	}
 
+	generateFontFace(appendPreloads: (preload: string) => void): string {
+		let fontFace = `@font-face {
+	font-family: '${this.family}';
+	font-style: ${this.style};
+	font-weight: ${this.weight};
+	font-display: swap;\n`
+
+		let addedSrc: boolean = false
+		// ifExists will be called only if the font format exists
+		const appendURL = (name: FontFormatName, ifExists?: (path: string) => void) => {
+			const fmt = this.getFormat(name)
+			if (!fmt) {
+				return
+			}
+
+			if (ifExists) {
+				ifExists(fmt.path)
+			}
+
+			// If the previous character is a ";", remove it and insert a "," and a newline instead (for enumerating more than one property)
+			if (fontFace[fontFace.length-1] === ';') {
+				fontFace = fontFace.slice(0, -1) + ',\n'
+			}
+			if (!addedSrc) {
+				fontFace += 'src: '
+			}
+			addedSrc = true
+			fontFace += `url('/${removeFirstDir(fmt.path)})') format('${fmt.cssName}');`
+		}
+
+		// Generating .eot and .woff2 URLs are special cases
+		const fmteot = this.getFormat('eot')
+		if (fmteot) {
+			const src = '/' + removeFirstDir(fmteot.path)
+			fontFace += `src: url('${src}');
+			src: url('${src}?#iefix') format('${fmteot.cssName}');`
+			addedSrc = true
+		}
+		appendURL('woff2', (path: string) => {
+			appendPreloads(`<link rel="preload" href="/${removeFirstDir(path)}" as="font" type="font/woff2">`)
+		})
+		appendURL('woff')
+		appendURL('ttf')
+		fontFace += '}'
+		return fontFace
+	}
+
 	getFormat(name: FontFormatName): FontFormat | undefined {
 		for (const fmt of this.formats) {
 			if (fmt.name === name) {
@@ -373,9 +420,9 @@ async function processFonts(pages: File[]) {
 			const weight = words[1]
 			font.style = style
 			font.weight = weight
-			const outpath = filepath.join('dist', path, name)
+			const fontpath = filepath.join('dist', path, name)
 			for (const t of types) {
-				font.addFormat(t as FontFormatName, outpath+'.'+t)
+				font.addFormat(t as FontFormatName, fontpath+'.'+t)
 			}
 			fonts.push(font)
 			
@@ -388,24 +435,26 @@ async function processFonts(pages: File[]) {
 			const ttfbuf = await readFile(ttfPath)
 			const needed = requiredTypes.filter(rt => !types.includes(rt))
 			for (const n of needed) {
+				const outpath = filepath.join('dist', path, name + '.' + n)
+				let buf: Buffer
 				switch (n) {
 				case 'woff2':
-					console.log('producing woff2 for:', family, name)
-					const woff2buf = ttf2woff2(ttfbuf)
-					pxs.push(writeFile(outpath+'.woff2', woff2buf))
+					console.log('generating woff2 font for:', family, name)
+					buf = ttf2woff2(ttfbuf)
 					break
 				case 'woff':
-					console.log('producing woff for:', family, name)
-					const woffbuf = ttf2woff(ttfbuf).buffer
-					pxs.push(writeFile(outpath+'.woff', woffbuf))
+					console.log('generating woff font for:', family, name)
+					buf = ttf2woff(ttfbuf).buffer as Buffer
 					break
 				case 'eot':
-					console.log('producing eot for:', family, name)
-					const eotbuf = ttf2eot(ttfbuf).buffer
-					pxs.push(writeFile(outpath+'.eot', eotbuf))
+					console.log('generating eot font for:', family, name)
+					buf = ttf2eot(ttfbuf).buffer as Buffer
 					break
+				default:
+					throw new Error('unknown font type')
 				}
-				font.addFormat(n as FontFormatName, outpath+'.'+n)
+				pxs.push(writeFile(outpath, buf))
+				font.addFormat(n as FontFormatName, outpath)
 			}
 		}
 	})
@@ -413,58 +462,10 @@ async function processFonts(pages: File[]) {
 	await Promise.all(pxs)
 
 	let preloads = ''
-
 	const fontFaces = fonts.map(f => {
-		let fontFace = `@font-face {
-			font-family: '${f.family}';
-			font-style: ${f.style};
-			font-weight: ${f.weight};
-			font-display: swap;\n`
-
-		// TODO: refactor: this mess
-		let first = false
-		const fmteot = f.getFormat('eot')
-		if (fmteot) {
-			fontFace += `src: url('/${removeFirstDir(fmteot.path)}');
-			src: url('/${removeFirstDir(fmteot.path)}?#iefix') format('embedded-opentype');`
-			first = true
-		}
-		const fmtwoff2 = f.getFormat('woff2')
-		if (fmtwoff2) {
-			preloads += `<link rel="preload" href="/${removeFirstDir(fmtwoff2.path)}" as="font" type="font/woff2">\n`
-			if (fontFace[fontFace.length-1] === ';') {
-				fontFace = fontFace.slice(0, -1) + ',\n'
-			}
-			if (!first) {
-				fontFace += 'src: '
-			}
-			first = true
-			fontFace += `url('/${removeFirstDir(fmtwoff2.path)}') format('woff2');`
-		}
-		const fmtwoff = f.getFormat('woff')
-		if (fmtwoff) {
-			if (fontFace[fontFace.length-1] === ';') {
-				fontFace = fontFace.slice(0, -1) + ',\n'
-			}
-			if (!first) {
-				fontFace += 'src: '
-			}
-			first = true
-			fontFace += `url('/${removeFirstDir(fmtwoff.path)}') format('woff');`
-		}
-		const fmtttf = f.getFormat('ttf')
-		if (fmtttf) {
-			if (fontFace[fontFace.length-1] === ';') {
-				fontFace = fontFace.slice(0, -1) + ',\n'
-			}
-			if (!first) {
-				fontFace += 'src: '
-			}
-			first = true
-			fontFace += `url('/${removeFirstDir(fmtttf.path)})') format('truetype');\n`
-		}
-		fontFace += '}'
-		return fontFace
+		return f.generateFontFace((preload: string) => {
+			preloads += preload
+		})
 	}).join('\n')
 
 	for (const page of pages) {
