@@ -14,7 +14,7 @@ import nodeHTMLParser, { Node as HTMLNode, HTMLElement } from 'node-html-parser'
 import cssTree, { CssNode as CSSNode } from 'css-tree'
 
 import { watch, File, collect, collectFiles, writeFileCompressed, walktop, walktopSync } from './fs'
-import { Config, readConfig, CompressKinds } from './config'
+import { Config, FontConfig, readConfig, CompressKinds } from './config'
 import { rip } from './rip'
 
 // Options specified through env vars or as command-line arguments
@@ -54,7 +54,7 @@ async function build({ prod, configPath }: Options) {
 	await taskv('components', () => processComponents(pages))
 
 	await taskv('fonts', async () => {
-		await processFonts(pages)
+		await processFonts(pages, cfg.fonts)
 	})
 
 	let parsed: { pages: HTMLFile[], styles: CSSFile[] }
@@ -358,13 +358,13 @@ class Font {
 type FontFormat = {
 	name: FontFormatName // "ttf"
 	cssName: FontFormatCSSName // "truetype"
-	path: string // "assets/fonts/Roboto/normal-400.ttf"
+	path: string // "dist/assets/fonts/Roboto/normal-400.ttf"
 }
 
 type FontFormatName = "ttf" | "woff" | "woff2" | "eot"
 type FontFormatCSSName = "truetype" | "woff" | "woff2" | "embedded-opentype"
 
-async function processFonts(pages: File[]) {
+async function processFonts(pages: File[], fontCfg: FontConfig) {
 	// TODO: refactor: `fontExtensions` and `requiredTypes` should be the same (no leading ".")
 	const fontExtensions = ['.ttf', '.woff', '.woff2', '.eot']
 
@@ -425,6 +425,10 @@ async function processFonts(pages: File[]) {
 				font.addFormat(t as FontFormatName, fontpath+'.'+t)
 			}
 			fonts.push(font)
+
+			if (!fontCfg.convert) {
+				continue
+			}
 			
 			const haveTTF = types.includes('ttf')
 			// If we don't have the .ttf file, we can't convert to other formats

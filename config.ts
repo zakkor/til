@@ -9,6 +9,7 @@ export type Config = {
 	removeUnusedCSS: boolean
 	images: ImageConfig
 	svgs: SVGConfig
+	fonts: FontConfig
 }
 
 type ImageConfig = {
@@ -19,6 +20,10 @@ type ImageConfig = {
 type SVGConfig = {
 	optimize: boolean
 	inline: boolean
+}
+
+export type FontConfig = {
+	convert: boolean
 }
 
 const COMPRESS_KINDS = ['none', 'gzip', 'brotli'] as const
@@ -42,6 +47,9 @@ export function readConfig(path: string, prod: boolean): Config {
 			svgs: {
 				inline: true,
 				optimize: true,
+			},
+			fonts: {
+				convert: true,
 			}
 		}
 	} else {
@@ -59,6 +67,9 @@ export function readConfig(path: string, prod: boolean): Config {
 			svgs: {
 				inline: false,
 				optimize: false,
+			},
+			fonts: {
+				convert: false,
 			}
 		}
 	}
@@ -92,6 +103,9 @@ export function readConfig(path: string, prod: boolean): Config {
 	}
 	if (cfg.svgs === undefined) {
 		cfg.svgs = cfgDefault.svgs
+	}
+	if (cfg.fonts === undefined) {
+		cfg.fonts = cfgDefault.fonts
 	}
 
 	// Validate config
