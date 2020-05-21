@@ -1,4 +1,5 @@
 import fs from 'fs'
+import crypto from 'crypto'
 import filepath from 'path'
 import zlib from 'zlib'
 import { CompressKinds } from './config'
@@ -137,4 +138,39 @@ export function writeFileCompressed(path: string, data: string, compress: Compre
 	}
 
 	fs.writeFileSync(path, data)
+}
+
+export function copyDirSync(from: string, to: string) {
+	fs.mkdirSync(to, { recursive: true })
+	fs.readdirSync(from).forEach(element => {
+		if (fs.lstatSync(filepath.join(from, element)).isFile()) {
+			fs.copyFileSync(filepath.join(from, element), filepath.join(to, element))
+		} else {
+			copyDirSync(filepath.join(from, element), filepath.join(to, element))
+		}
+	})
+}
+
+export function fileChanged(path: string): boolean {
+	const cbuf = fs.readFileSync(path)
+	const chash = crypto.createHash('sha256').update(cbuf).digest('hex')
+
+	let cabuf: Buffer
+	try {
+		cabuf = fs.readFileSync(filepath.join('.cache', path))
+	} catch {
+		return false
+	}
+	const cahash = crypto.createHash('sha256').update(cabuf).digest('hex')
+
+	return chash !== cahash
+}
+
+export function fileExists(path: string): boolean {
+	try {
+		fs.statSync(path)
+	} catch {
+		return false
+	}
+	return true
 }

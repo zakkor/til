@@ -13,9 +13,17 @@ import SVGO from 'svgo'
 import nodeHTMLParser, { Node as HTMLNode, HTMLElement } from 'node-html-parser'
 import cssTree, { CssNode as CSSNode } from 'css-tree'
 
-import { watch, File, collect, collectFiles, writeFileCompressed, walktop, walktopSync } from './fs'
-import { Config, FontConfig, readConfig, CompressKinds } from './config'
+import { watch, File, collect, collectFiles,
+	writeFileCompressed, walktop,
+	walktopSync, fileExists, fileChanged,
+	copyDirSync } from './fs'
+import { Config, readConfig, CompressKinds } from './config'
 import { rip } from './rip'
+
+const copyFile = util.promisify(fs.copyFile)
+const readFile = util.promisify(fs.readFile)
+const writeFile = util.promisify(fs.writeFile)
+const mkdir = util.promisify(fs.mkdir)
 
 // Options specified through env vars or as command-line arguments
 type Options = {
@@ -54,7 +62,7 @@ async function build({ prod, configPath }: Options) {
 	await taskv('components', () => processComponents(pages))
 
 	await taskv('fonts', async () => {
-		await processFonts(pages, cfg.fonts)
+		await processFonts(pages, cfg)
 	})
 
 	let parsed: { pages: HTMLFile[], styles: CSSFile[] }
@@ -75,6 +83,9 @@ async function build({ prod, configPath }: Options) {
 	})
 
 	await taskv('scripts', () => processScripts(prod, cfg.compress))
+
+	// Cache fonts so we don't have to generate them every time
+	copyDirSync(filepath.join('dist', 'assets', 'fonts'), filepath.join('.cache', 'assets', 'fonts'))
 }
 
 // Go through each component and substitute in pages
@@ -235,7 +246,7 @@ async function processSVGs(pages: HTMLFile[], cfg: Config) {
 			const dirname = filepath.join('dist', filepath.dirname(path)) // is like "dist/assets/images"
 			// Create output dir
 			fs.mkdirSync(dirname, { recursive: true })
-			
+
 			// Write file too, it may be used by CSS.
 			fs.writeFileSync(filepath.join('dist', path), svg, 'utf8')
 
@@ -258,11 +269,6 @@ async function processSVGs(pages: HTMLFile[], cfg: Config) {
 		})
 	}
 }
-
-const copyFile = util.promisify(fs.copyFile)
-const readFile = util.promisify(fs.readFile)
-const writeFile = util.promisify(fs.writeFile)
-const mkdir = util.promisify(fs.mkdir)
 
 class Font {
 	family: string // "Roboto"
@@ -318,7 +324,7 @@ class Font {
 			}
 
 			// If the previous character is a ";", remove it and insert a "," and a newline instead (for enumerating more than one property)
-			if (fontFace[fontFace.length-1] === ';') {
+			if (fontFace[fontFace.length - 1] === ';') {
 				fontFace = fontFace.slice(0, -1) + ',\n'
 			}
 			if (!addedSrc) {
@@ -364,7 +370,7 @@ type FontFormat = {
 type FontFormatName = "ttf" | "woff" | "woff2" | "eot"
 type FontFormatCSSName = "truetype" | "woff" | "woff2" | "embedded-opentype"
 
-async function processFonts(pages: File[], fontCfg: FontConfig) {
+async function processFonts(pages: File[], cfg: Config) {
 	// TODO: refactor: `fontExtensions` and `requiredTypes` should be the same (no leading ".")
 	const fontExtensions = ['.ttf', '.woff', '.woff2', '.eot']
 
@@ -390,13 +396,13 @@ async function processFonts(pages: File[], fontCfg: FontConfig) {
 		await mkdir(filepath.join('dist', path))
 		const family = filepath.basename(path)
 		// TODO: refactor: get rid of `fontFormats` and use only `fonts`
-		const fontFormats: { [index:string]: string[] } = {}
+		const fontFormats: { [index: string]: string[] } = {}
 
 		walktopSync(path, (path, isDir) => {
 			if (isDir) {
 				return
 			}
-			
+
 			const parts = filepath.basename(path).split('.')
 			const name = parts[0]
 			const ext = parts[1]
@@ -422,14 +428,14 @@ async function processFonts(pages: File[], fontCfg: FontConfig) {
 			font.weight = weight
 			const fontpath = filepath.join('dist', path, name)
 			for (const t of types) {
-				font.addFormat(t as FontFormatName, fontpath+'.'+t)
+				font.addFormat(t as FontFormatName, fontpath + '.' + t)
 			}
 			fonts.push(font)
 
-			if (!fontCfg.convert) {
+			if (!cfg.fonts.convert) {
 				continue
 			}
-			
+
 			const haveTTF = types.includes('ttf')
 			// If we don't have the .ttf file, we can't convert to other formats
 			if (!haveTTF) {
@@ -439,25 +445,32 @@ async function processFonts(pages: File[], fontCfg: FontConfig) {
 			const ttfbuf = await readFile(ttfPath)
 			const needed = requiredTypes.filter(rt => !types.includes(rt))
 			for (const n of needed) {
-				const outpath = filepath.join('dist', path, name + '.' + n)
-				let buf: Buffer
-				switch (n) {
-				case 'woff2':
-					console.log('generating woff2 font for:', family, name)
-					buf = ttf2woff2(ttfbuf)
-					break
-				case 'woff':
-					console.log('generating woff font for:', family, name)
-					buf = ttf2woff(ttfbuf).buffer as Buffer
-					break
-				case 'eot':
-					console.log('generating eot font for:', family, name)
-					buf = ttf2eot(ttfbuf).buffer as Buffer
-					break
-				default:
-					throw new Error('unknown font type')
+				const neededPath = filepath.join(path, name + '.' + n)
+				const outpath = filepath.join('dist', neededPath)
+				// If generated font is not cached
+				if (fileChanged(ttfPath) || !fileExists(filepath.join('.cache', neededPath))) {
+					if (cfg.verbose) {
+						console.log(`generating "${n}" font for`, family, name)
+					}
+					let buf: Buffer
+					switch (n) {
+						case 'woff2':
+							buf = ttf2woff2(ttfbuf)
+							break
+						case 'woff':
+							buf = ttf2woff(ttfbuf).buffer as Buffer
+							break
+						case 'eot':
+							buf = ttf2eot(ttfbuf).buffer as Buffer
+							break
+						default:
+							throw new Error('unknown font type')
+					}
+					pxs.push(writeFile(outpath, buf))
+				} else {
+					// Copy from cache dir
+					pxs.push(copyFile(filepath.join('.cache', neededPath), outpath))
 				}
-				pxs.push(writeFile(outpath, buf))
 				font.addFormat(n as FontFormatName, outpath)
 			}
 		}

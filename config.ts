@@ -22,7 +22,7 @@ type SVGConfig = {
 	inline: boolean
 }
 
-export type FontConfig = {
+type FontConfig = {
 	convert: boolean
 }
 
