@@ -15,27 +15,33 @@ const build = async (prod: boolean) => {
 	})
 }
 
-// Watch
-if (process.argv.includes('dev')) {
-	bs.init({
-		server: './dist',
-		ui: false,
-		notify: false,
-		open: false,
-		logPrefix: '',
-	})
+const cmd = process.argv[2]; // semicolon necessary
+(async () => {
+	switch (cmd) {
+		case undefined:
+		case 'build':
+			await build(PROD)
+			break
 
-	// Initial build
-	build(false).then(() => {
-		bs.reload(['*.html'])
-	})
+		case 'dev':
+			bs.init({
+				server: './dist',
+				ui: false,
+				notify: false,
+				open: false,
+				logPrefix: '',
+			}, async () => {
+				// Initial build
+				await build(false)
+				bs.reload(['*.html'])
 
-	til.watch(async file => {
-		// Development build
-		await build(false)
-		const reload = file.endsWith('.css') ? ['*.css'] : ['*.html', '*.css']
-		bs.reload(reload)
-	})
-} else {
-	build(PROD)
-}
+				til.watch(async file => {
+					// Development build
+					await build(false)
+					const reload = file.endsWith('.css') ? ['*.css'] : ['*.html', '*.css']
+					bs.reload(reload)
+				})
+			})
+			break
+	}
+})()

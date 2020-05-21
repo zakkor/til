@@ -387,6 +387,7 @@ type FontFormatCSSName = "truetype" | "woff" | "woff2" | "embedded-opentype"
 
 async function processFonts(pages: File[], cfg: Config) {
 	if (!fileExists(filepath.join('assets', 'fonts'))) {
+		// If fonts dir doesn't exist, stop
 		return
 	}
 
