@@ -85,7 +85,10 @@ async function build({ prod, configPath }: Options) {
 	await taskv('scripts', () => processScripts(prod, cfg.compress))
 
 	// Cache fonts so we don't have to generate them every time
-	copyDirSync(filepath.join('dist', 'assets', 'fonts'), filepath.join('.cache', 'assets', 'fonts'))
+	const distFontDir = filepath.join('dist', 'assets', 'fonts')
+	if (fileExists(distFontDir)) {
+		copyDirSync(distFontDir, filepath.join('.cache', 'assets', 'fonts'))
+	}
 }
 
 // Go through each component and substitute in pages
@@ -150,7 +153,12 @@ async function processImages(pages: HTMLFile[], cfg: Config) {
 			fs.mkdirSync(dirname, { recursive: true })
 
 			// Always copy original file
-			fs.copyFileSync(path, filepath.join('dist', path))
+			try {
+				fs.copyFileSync(path, filepath.join('dist', path))
+			} catch (err) {
+				console.log(`image file "${path}" specified in <img> src attribute does not exist`)
+				process.exit(1)
+			}
 
 			let mediaQueries: MediaQuery[] | null = null
 			if (cfg.images.responsive) {
@@ -217,7 +225,14 @@ async function processSVGs(pages: HTMLFile[], cfg: Config) {
 				path = path.slice(1)
 			}
 
-			let svg = fs.readFileSync(path, 'utf8')
+			let svg: string
+			try {
+				svg = fs.readFileSync(path, 'utf8')
+			} catch (err) {
+				console.log(`svg file "${path}" specified in <img> src attribute does not exist`)
+				process.exit(1)
+			}
+
 			const svgo = new SVGO({
 				plugins: [{ removeDoctype: true }, { removeXMLProcInst: true },
 				{ removeComments: true }, { removeMetadata: true },
@@ -371,6 +386,10 @@ type FontFormatName = "ttf" | "woff" | "woff2" | "eot"
 type FontFormatCSSName = "truetype" | "woff" | "woff2" | "embedded-opentype"
 
 async function processFonts(pages: File[], cfg: Config) {
+	if (!fileExists(filepath.join('assets', 'fonts'))) {
+		return
+	}
+
 	// TODO: refactor: `fontExtensions` and `requiredTypes` should be the same (no leading ".")
 	const fontExtensions = ['.ttf', '.woff', '.woff2', '.eot']
 
