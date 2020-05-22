@@ -372,7 +372,7 @@ class Font {
 				fontFace += 'src: '
 			}
 			addedSrc = true
-			fontFace += `url('/${removeFirstDir(fmt.path)})') format('${fmt.cssName}');`
+			fontFace += `url('/${removeFirstDir(fmt.path)}') format('${fmt.cssName}');`
 		}
 
 		// Generating .eot and .woff2 URLs are special cases
