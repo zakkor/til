@@ -13,10 +13,12 @@ import SVGO from 'svgo'
 import nodeHTMLParser, { Node as HTMLNode, HTMLElement } from 'node-html-parser'
 import cssTree, { CssNode as CSSNode } from 'css-tree'
 
-import { watch, File, collect, collectFiles,
+import {
+	watch, File, collect, collectFiles,
 	writeFileCompressed, walktop,
 	walktopSync, fileExists, fileChanged,
-	copyDirSync } from './fs'
+	copyDirSync
+} from './fs'
 import { Config, readConfig, CompressKinds } from './config'
 import { rip } from './rip'
 
@@ -119,12 +121,12 @@ function parseFiles(pages: File[], styles: File[]): { pages: HTMLFile[], styles:
 async function processImages(pages: HTMLFile[], cfg: Config) {
 	const acceptedExtensions = ['.jpg', '.png']
 
-  // TODO: add to queue to avoid copying the same file multiple times
+	// TODO: add to queue to avoid copying the same file multiple times
 	const images = collect([filepath.join('assets', 'images')], acceptedExtensions)
 	for (const path of images) {
-  	// Create output dir
-    await mkdir(filepath.join('dist', filepath.dirname(path)), { recursive: true })
-    await copyFile(path, filepath.join('dist', path))
+		// Create output dir
+		await mkdir(filepath.join('dist', filepath.dirname(path)), { recursive: true })
+		await copyFile(path, filepath.join('dist', path))
 	}
 
 	for (const page of pages) {
@@ -236,17 +238,17 @@ async function processSVGs(pages: HTMLFile[], cfg: Config) {
 	// TODO: parse HTML <style> rules and CSS rules looking for url() elements referencing SVGs, and process only those?
 	const svgs = collect([filepath.join('assets', 'images')], ['.svg'])
 	for (const path of svgs) {
-  	// Create output dir
-    await mkdir(filepath.join('dist', filepath.dirname(path)), { recursive: true })
+		// Create output dir
+		await mkdir(filepath.join('dist', filepath.dirname(path)), { recursive: true })
 
-  	if (cfg.svgs.optimize) {
-    	const data = await readFile(path, 'utf8')
-      const optimized = await svgo.optimize(data)
-      await writeFile(filepath.join('dist', path), optimized.data)
-      continue
-  	}
+		if (cfg.svgs.optimize) {
+			const data = await readFile(path, 'utf8')
+			const optimized = await svgo.optimize(data)
+			await writeFile(filepath.join('dist', path), optimized.data)
+			continue
+		}
 
-    await copyFile(path, filepath.join('dist', path))
+		await copyFile(path, filepath.join('dist', path))
 	}
 
 	for (const page of pages) {
