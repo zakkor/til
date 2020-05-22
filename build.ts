@@ -118,6 +118,15 @@ function parseFiles(pages: File[], styles: File[]): { pages: HTMLFile[], styles:
 
 async function processImages(pages: HTMLFile[], cfg: Config) {
 	const acceptedExtensions = ['.jpg', '.png']
+
+  // TODO: add to queue to avoid copying the same file multiple times
+	const images = collect([filepath.join('assets', 'images')], acceptedExtensions)
+	for (const path of images) {
+  	// Create output dir
+    await mkdir(filepath.join('dist', filepath.dirname(path)), { recursive: true })
+    await copyFile(path, filepath.join('dist', path))
+	}
+
 	for (const page of pages) {
 		await walkHTML(page.root, async (el: HTMLElement) => {
 			if (el.tagName != 'img') {
@@ -156,7 +165,7 @@ async function processImages(pages: HTMLFile[], cfg: Config) {
 			try {
 				fs.copyFileSync(path, filepath.join('dist', path))
 			} catch (err) {
-				console.log(`image file "${path}" specified in <img> src attribute does not exist`)
+				console.error(`image file "${path}" specified in <img> src attribute does not exist`)
 				process.exit(1)
 			}
 
@@ -205,6 +214,41 @@ async function processImages(pages: HTMLFile[], cfg: Config) {
 }
 
 async function processSVGs(pages: HTMLFile[], cfg: Config) {
+	const svgo = new SVGO({
+		plugins: [{ removeDoctype: true }, { removeXMLProcInst: true },
+		{ removeComments: true }, { removeMetadata: true },
+		{ removeTitle: true }, { removeDesc: true },
+		{ removeUselessDefs: true }, { removeEditorsNSData: true },
+		{ removeEmptyAttrs: true }, { removeHiddenElems: true },
+		{ removeEmptyText: true }, { removeEmptyContainers: true },
+		{ removeViewBox: false }, { cleanupEnableBackground: true },
+		{ convertStyleToAttrs: true }, { convertColors: true },
+		{ convertPathData: true }, { convertTransform: true },
+		{ removeUnknownsAndDefaults: true }, { removeNonInheritableGroupAttrs: true },
+		{ removeUselessStrokeAndFill: true }, { removeUnusedNS: true },
+		{ cleanupIDs: true }, { cleanupNumericValues: true },
+		{ moveElemsAttrsToGroup: true }, { moveGroupAttrsToElems: true },
+		{ collapseGroups: true }, { removeRasterImages: false },
+		{ mergePaths: true }, { convertShapeToPath: true },
+		{ sortAttrs: true }, { removeDimensions: true }, { cleanupAttrs: true }]
+	})
+
+	// TODO: parse HTML <style> rules and CSS rules looking for url() elements referencing SVGs, and process only those?
+	const svgs = collect([filepath.join('assets', 'images')], ['.svg'])
+	for (const path of svgs) {
+  	// Create output dir
+    await mkdir(filepath.join('dist', filepath.dirname(path)), { recursive: true })
+
+  	if (cfg.svgs.optimize) {
+    	const data = await readFile(path, 'utf8')
+      const optimized = await svgo.optimize(data)
+      await writeFile(filepath.join('dist', path), optimized.data)
+      continue
+  	}
+
+    await copyFile(path, filepath.join('dist', path))
+	}
+
 	for (const page of pages) {
 		await walkHTML(page.root, async (el: HTMLElement) => {
 			if (el.tagName != 'img') {
@@ -229,29 +273,9 @@ async function processSVGs(pages: HTMLFile[], cfg: Config) {
 			try {
 				svg = fs.readFileSync(path, 'utf8')
 			} catch (err) {
-				console.log(`svg file "${path}" specified in <img> src attribute does not exist`)
+				console.error(`svg file "${path}" specified in <img> src attribute does not exist`)
 				process.exit(1)
 			}
-
-			const svgo = new SVGO({
-				plugins: [{ removeDoctype: true }, { removeXMLProcInst: true },
-				{ removeComments: true }, { removeMetadata: true },
-				{ removeTitle: true }, { removeDesc: true },
-				{ removeUselessDefs: true }, { removeEditorsNSData: true },
-				{ removeEmptyAttrs: true }, { removeHiddenElems: true },
-				{ removeEmptyText: true }, { removeEmptyContainers: true },
-				{ removeViewBox: false }, { cleanupEnableBackground: true },
-				{ convertStyleToAttrs: true }, { convertColors: true },
-				{ convertPathData: true }, { convertTransform: true },
-				{ removeUnknownsAndDefaults: true }, { removeNonInheritableGroupAttrs: true },
-				{ removeUselessStrokeAndFill: true }, { removeUnusedNS: true },
-				{ cleanupIDs: true }, { cleanupNumericValues: true },
-				{ moveElemsAttrsToGroup: true }, { moveGroupAttrsToElems: true },
-				{ collapseGroups: true }, { removeRasterImages: false },
-				{ mergePaths: true }, { convertShapeToPath: true },
-				{ sortAttrs: true }, { removeDimensions: true },
-				{ removeAttrs: { attrs: '(stroke|fill)' } }, { cleanupAttrs: true }]
-			})
 
 			if (cfg.svgs.optimize) {
 				const optimized = await svgo.optimize(svg)
